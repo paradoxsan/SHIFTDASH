@@ -188,13 +188,14 @@ function LeadDrawer({
   const [err, setErr] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [tplId, setTplId] = useState(TEMPLATES[0].id);
+  const [sender, setSender] = useState("דניאל");
 
   const phone = lead.values["טלפון"] || "";
   const HIDDEN = ["מזהה ליד", "תאריך כניסה", "עודכן לאחרונה", "אוטומציה אחרונה", "תזכורת"];
   const editable = headers.filter((h) => h && !HIDDEN.includes(h));
 
   const tpl = TEMPLATES.find((t) => t.id === tplId) || TEMPLATES[0];
-  const filled = fillTemplate(tpl.text, lead.values);
+  const filled = fillTemplate(tpl.text, lead.values, sender);
 
   const pause = useMutation({
     mutationFn: (v: { paused: boolean; minutes?: number }) => postJson("/api/leads/pause", { phone, ...v }),
@@ -278,7 +279,25 @@ function LeadDrawer({
         </div>
 
         <div className="card p-3 mb-3">
-          <div className="text-xs font-bold text-[var(--color-muted)] mb-2">שליחת הודעה (Green API)</div>
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-xs font-bold text-[var(--color-muted)]">שליחת הודעה (Green API)</div>
+            <div className="flex gap-1">
+              {["דניאל", "נועם"].map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setSender(s)}
+                  className="chip"
+                  style={
+                    sender === s
+                      ? { borderColor: "var(--color-brand)", color: "var(--color-brand)" }
+                      : { opacity: 0.55 }
+                  }
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
           <select
             value={tplId}
             onChange={(e) => setTplId(e.target.value)}

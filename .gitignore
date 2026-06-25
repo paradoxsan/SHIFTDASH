@@ -31,3 +31,6 @@ coverage/
 
 # ── Research artifacts (large, regenerable) ──────────────────────────────────
 docs/ARCHITECTURE.research.json
+
+.vercel
+.env*

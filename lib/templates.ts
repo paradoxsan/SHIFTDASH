@@ -122,7 +122,11 @@ export const TEMPLATES: Template[] = [
   },
 ];
 
-export function fillTemplate(text: string, lead: Record<string, string>): string {
+export function fillTemplate(
+  text: string,
+  lead: Record<string, string>,
+  sender = "דניאל"
+): string {
   return text
     .replace(/\{שם\}/g, lead["שם"] || "")
     .replace(/\{טלפון\}/g, lead["טלפון"] || "")
@@ -130,6 +134,6 @@ export function fillTemplate(text: string, lead: Record<string, string>): string
     .replace(/\{שירות\}/g, lead["שירות מבוקש"] || "")
     .replace(/\{מועד_פגישה\}/g, lead["מועד פגישה"] || "")
     .replace(/\{קישור_יומן\}/g, lead["קישור ליומן"] || "")
-    .replace(/\{שולח\}/g, "דניאל")
-    .replace(/\{שם_שלי\}/g, "דניאל");
+    .replace(/\{שולח\}/g, sender)
+    .replace(/\{שם_שלי\}/g, sender);
 }

@@ -41,4 +41,15 @@ export const env = {
   authSecret: () => required("AUTH_SECRET"),
 
   agencySheetId: () => required("AGENCY_SHEET_ID"),
+
+  // ── Google OAuth login (allowlisted emails) ────────────────────────────────
+  googleOAuthClientId: () => required("GOOGLE_OAUTH_CLIENT_ID"),
+  googleOAuthClientSecret: () => required("GOOGLE_OAUTH_CLIENT_SECRET"),
+  googleConfigured: () =>
+    Boolean(process.env.GOOGLE_OAUTH_CLIENT_ID && process.env.GOOGLE_OAUTH_CLIENT_SECRET),
+  allowedEmails: () =>
+    (process.env.AUTH_ALLOWED_EMAILS ?? "")
+      .split(",")
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean),
 };

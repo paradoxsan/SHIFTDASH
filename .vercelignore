@@ -1,0 +1,11 @@
+# Never upload secrets to Vercel — env vars are set in the project settings.
+secrets/
+.env
+.env.local
+.env.*.local
+n8n/
+SDR*.json
+docs/ARCHITECTURE.research.json
+.vercel
+node_modules
+.next
