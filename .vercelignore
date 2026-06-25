@@ -1,10 +1,17 @@
 # Never upload secrets to Vercel — env vars are set in the project settings.
-# Leading "/" anchors to repo root so we don't accidentally exclude app/api/n8n.
-/secrets/
+#
+# WARNING: Vercel's .vercelignore matcher does NOT honor gitignore-style root
+# anchoring the way you'd expect. A pattern like "/n8n/" still matched and
+# stripped app/api/n8n/ from the build, so the n8n API routes 404'd in prod.
+# NEVER exclude by a bare directory name that can collide with a route folder
+# (n8n, leads, bots, clients, chat, ...). Exclude by explicit file/glob instead.
+#
+# The local n8n/ artifacts dir and secrets/ are gitignored already, so CI never
+# checks them out; their only sensitive payload is SDR*.json, covered below.
 .env
 .env.local
 .env.*.local
-/n8n/
-/SDR*.json
-/docs/ARCHITECTURE.research.json
+secrets/*
+SDR*.json
+docs/ARCHITECTURE.research.json
 .vercel
