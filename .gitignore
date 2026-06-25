@@ -1,0 +1,33 @@
+# ── Secrets — never commit real env files ────────────────────────────────────
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+!.env.example
+secrets/
+n8n/
+# pasted n8n workflow exports (contain Green API tokens / prompts)
+/SDR*.json
+/*-workflow.json
+
+# ── Node / Next.js ───────────────────────────────────────────────────────────
+node_modules/
+.next/
+out/
+build/
+dist/
+*.tsbuildinfo
+next-env.d.ts
+
+# ── Logs / misc ──────────────────────────────────────────────────────────────
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+.DS_Store
+.vercel
+coverage/
+
+# ── Research artifacts (large, regenerable) ──────────────────────────────────
+docs/ARCHITECTURE.research.json
