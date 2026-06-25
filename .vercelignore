@@ -1,11 +1,10 @@
 # Never upload secrets to Vercel — env vars are set in the project settings.
-secrets/
+# Leading "/" anchors to repo root so we don't accidentally exclude app/api/n8n.
+/secrets/
 .env
 .env.local
 .env.*.local
-n8n/
-SDR*.json
-docs/ARCHITECTURE.research.json
+/n8n/
+/SDR*.json
+/docs/ARCHITECTURE.research.json
 .vercel
-node_modules
-.next
