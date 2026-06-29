@@ -11,6 +11,9 @@ const PATHS: Record<string, string> = {
   refresh: "M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15",
   search: "M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z",
   back: "M19 12H5M12 19l-7-7 7-7",
+  ops: "M22 12h-6l-2 3h-4l-2-3H2M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z",
+  provision: "M12 8v8M8 12h8M12 21a9 9 0 100-18 9 9 0 000 18z",
+  filter: "M22 3H2l8 9.46V19l4 2v-8.54L22 3z",
 };
 
 export function Icon({

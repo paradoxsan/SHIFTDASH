@@ -26,7 +26,10 @@ export function ChatView() {
 
   const chatsQ = useQuery({
     queryKey: ["chats", whapiKey],
-    queryFn: () => fetchJson<{ chats: WhapiChat[] }>(`/api/whapi/${whapiKey}/chats`),
+    queryFn: () =>
+      fetchJson<{ chats: WhapiChat[]; campaignOnly?: boolean; total?: number }>(
+        `/api/whapi/${whapiKey}/chats`
+      ),
     enabled: !!whapiKey && hasWhapi,
     refetchInterval: 6_000,
     refetchIntervalInBackground: true,
@@ -59,6 +62,7 @@ export function ChatView() {
 
   // Search the chat list by name or phone digits.
   const allChats = chatsQ.data?.chats ?? [];
+  const campaignOnly = chatsQ.data?.campaignOnly ?? false;
   const searchDigits = search.replace(/\D/g, "");
   const filteredChats = !search.trim()
     ? allChats
@@ -112,11 +116,31 @@ export function ChatView() {
             placeholder="חיפוש לפי שם או טלפון…"
             className="w-full mb-2 rounded-xl bg-[var(--color-surface-2)] border border-[var(--color-border)] px-3 py-2 text-sm outline-none focus:border-[var(--color-brand)]"
           />
+          {campaignOnly && (
+            <div className="mb-2">
+              <span
+                className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium"
+                style={{ background: "var(--color-surface-2)", color: "var(--color-muted)" }}
+                title="מוצגות רק שיחות שנכנסו מהקמפיין (Click-to-WhatsApp). שיחות אישיות/קיימות בטלפון מוסתרות."
+              >
+                <Icon name="filter" size={12} />
+                שיחות קמפיין בלבד · {allChats.length}
+              </span>
+            </div>
+          )}
           {chatsQ.isLoading ? (
             <Spinner />
           ) : filteredChats.length === 0 ? (
             <div className="flex flex-col gap-3 pt-2">
-              <EmptyState text={search ? "לא נמצאה שיחה ברשימה" : "אין שיחות"} />
+              <EmptyState
+                text={
+                  search
+                    ? "לא נמצאה שיחה ברשימה"
+                    : campaignOnly
+                      ? "עדיין אין שיחות קמפיין"
+                      : "אין שיחות"
+                }
+              />
               {searchDigits.length >= 6 && (
                 <button onClick={openByPhone} className="btn btn-brand">
                   פתח שיחה עם {searchDigits}
