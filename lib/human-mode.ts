@@ -5,12 +5,39 @@
 //   silenced_until → bot silent until that time, then auto-resumes
 import { runSql } from "./supabase-management";
 import { sqlString } from "./sql";
+import type { WatchlistItem } from "./types";
 
 export interface HumanModeState {
   chatId: string;
   active: boolean;
   silencedUntil: string | null;
   updatedAt: string | null;
+}
+
+/** Watchlist (Phase 5): all chats a human has taken over, newest first, with a
+ *  flag for those whose silence window has elapsed (the bot may have resumed). */
+export async function listHumanModeActive(ref: string): Promise<WatchlistItem[]> {
+  const rows = await runSql<{
+    chat_id: string;
+    active: boolean;
+    silenced_until: string | null;
+    updated_at: string | null;
+  }>(
+    ref,
+    `select chat_id, active, silenced_until, updated_at
+       from public.human_mode
+      where active = true
+      order by updated_at desc nulls last
+      limit 500`
+  );
+  const now = Date.now();
+  return rows.map((r) => ({
+    chatId: r.chat_id,
+    active: r.active,
+    silencedUntil: r.silenced_until,
+    updatedAt: r.updated_at,
+    expired: r.silenced_until ? new Date(r.silenced_until).getTime() < now : false,
+  }));
 }
 
 export async function getHumanMode(ref: string, chatId: string): Promise<HumanModeState> {

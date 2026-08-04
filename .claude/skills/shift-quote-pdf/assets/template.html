@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<style>
+/* ===== Fonts: Google Sans stand-in (Inter, Latin) + Heebo (Hebrew) =====
+   The reference PDF pairs Google Sans (Latin) with a Hebrew fallback.
+   Inter is the closest open match to Google Sans for Latin/numbers;
+   Heebo carries the Hebrew with the same geometric feel. */
+@font-face {
+  font-family: 'GoogleSans';
+  src: url('fonts/Inter-Regular.ttf') format('truetype');
+  font-weight: 400; font-style: normal;
+}
+@font-face {
+  font-family: 'GoogleSans';
+  src: url('fonts/Inter-Bold.ttf') format('truetype');
+  font-weight: 700; font-style: normal;
+}
+@font-face {
+  font-family: 'Heebo';
+  src: url('fonts/Heebo-Regular.ttf') format('truetype');
+  font-weight: 400; font-style: normal;
+}
+@font-face {
+  font-family: 'Heebo';
+  src: url('fonts/Heebo-Bold.ttf') format('truetype');
+  font-weight: 700; font-style: normal;
+}
+
+@page {
+  size: A4;
+  margin: 0;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  /* Heebo first so Hebrew renders in Heebo; Inter (as GoogleSans) handles Latin via fallback */
+  font-family: 'Heebo', 'GoogleSans', sans-serif;
+  color: #2b2b2b;
+  direction: rtl;
+}
+
+/* Each page is a full-bleed A4 canvas with the extracted background image */
+.page {
+  position: relative;
+  width: 210mm;
+  height: 297mm;
+  background-image: url('background.png');
+  background-size: cover;
+  background-position: center;
+  page-break-after: always;
+  overflow: hidden;
+}
+.page:last-child { page-break-after: auto; }
+
+/* Content sits inside the printed border frame, away from the corner watermarks */
+.content {
+  position: absolute;
+  top: 22mm;
+  right: 24mm;
+  left: 24mm;
+  bottom: 26mm;
+}
+
+/* ---- Typographic scale (tuned to match the reference) ---- */
+.doc-title {
+  font-family: 'Heebo', sans-serif;
+  font-weight: 700;
+  font-size: 25pt;
+  text-align: center;
+  color: #1c1c1c;
+  margin-bottom: 7mm;
+  letter-spacing: -0.2px;
+}
+
+.subline {
+  font-weight: 700;
+  font-size: 12.5pt;
+  text-align: center;
+  color: #1c1c1c;
+  margin-bottom: 7mm;
+}
+
+.intro {
+  font-weight: 400;
+  font-size: 11.5pt;
+  line-height: 1.72;
+  text-align: right;
+  color: #2b2b2b;
+  margin-bottom: 8mm;
+}
+
+.section-title {
+  font-weight: 700;
+  font-size: 14.5pt;
+  text-align: right;
+  color: #1c1c1c;
+  margin-top: 7mm;
+  margin-bottom: 4mm;
+}
+/* First section title can carry an underline accent like the reference's opening header */
+.section-title.accent {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  text-decoration-thickness: 1.5px;
+}
+
+.body-text {
+  font-weight: 400;
+  font-size: 11.5pt;
+  line-height: 1.72;
+  text-align: right;
+  color: #2b2b2b;
+  margin-bottom: 4.5mm;
+}
+
+/* Latin runs (API, N8N, GPT, brand names, numbers) lean on the Google-Sans stand-in */
+.latin { font-family: 'GoogleSans', sans-serif; }
+
+/* Highlighted lead-in for cost lines: "הקמת הבוט:" etc. */
+.label { font-weight: 700; color: #1c1c1c; }
+
+/* Centered emphatic banner used for the build-time line on page 2 */
+.banner {
+  font-weight: 700;
+  font-size: 17pt;
+  line-height: 1.55;
+  text-align: center;
+  color: #1c1c1c;
+  margin-bottom: 9mm;
+}
+.banner .u {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  text-decoration-thickness: 1.5px;
+}
+
+/* Validity line */
+.validity {
+  font-weight: 700;
+  font-size: 12.5pt;
+  text-align: center;
+  color: #1c1c1c;
+  margin-top: 6mm;
+  margin-bottom: 14mm;
+}
+
+/* Two-column signature block — anchored to the right edge of the text column
+   and held to a fixed width so the leftmost signer stays clear of the
+   »SHIFT logo in the bottom-right of the background. (A centered/space-between
+   block used to collide with the logo when the signatures fell in the bottom
+   band; on a 3-page quote the block sits high on the final page and never gets
+   near the logo at all.) */
+.signatures {
+  display: flex;
+  flex-direction: row-reverse;
+  justify-content: flex-start;
+  gap: 14mm;
+  width: 118mm;
+  margin: 0;
+}
+.sig {
+  text-align: center;
+  width: 52mm;
+}
+.sig .name {
+  font-weight: 700;
+  font-size: 13pt;
+  color: #1c1c1c;
+  margin-bottom: 1mm;
+}
+.sig .org {
+  font-family: 'GoogleSans', sans-serif;
+  font-weight: 700;
+  font-size: 10.5pt;
+  letter-spacing: 1px;
+  color: #2b2b2b;
+}
+
+.gap-sm { margin-bottom: 4mm; }
+.gap-md { margin-bottom: 7mm; }
+</style>
+</head>
+<body>
+{{PAGES}}
+</body>
+</html>

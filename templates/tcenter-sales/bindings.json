@@ -1,0 +1,72 @@
+{
+  "templateId": "tcenter-sales",
+  "sourceWorkflowId": "KIIGQZPxugci8i1j",
+  "tokens": [
+    {
+      "token": "{{TPL:SYSTEM_PROMPT}}",
+      "name": "SYSTEM_PROMPT",
+      "kind": "prompt",
+      "occurrences": 1,
+      "description": "The bot's AI instructions (versioned prompt artifact)"
+    },
+    {
+      "token": "{{TPL:GEMINI_API_KEY}}",
+      "name": "GEMINI_API_KEY",
+      "kind": "secret",
+      "occurrences": 1,
+      "description": "Google Gemini API key (vision classify URL) — from bot_secrets"
+    },
+    {
+      "token": "{{TPL:EZCOUNT_API_KEY}}",
+      "name": "EZCOUNT_API_KEY",
+      "kind": "secret",
+      "occurrences": 2,
+      "description": "EZcount invoicing api_key — from bot_secrets"
+    },
+    {
+      "token": "{{TPL:NOTIFY_GROUP_ID}}",
+      "name": "NOTIFY_GROUP_ID",
+      "kind": "config",
+      "occurrences": 8,
+      "description": "WhatsApp group chat id for team notifications"
+    },
+    {
+      "token": "{{TPL:SUPABASE_REF}}",
+      "name": "SUPABASE_REF",
+      "kind": "config",
+      "occurrences": 3,
+      "description": "Data-plane Supabase project ref"
+    },
+    {
+      "token": "{{TPL:DEVELOPER_EMAIL}}",
+      "name": "DEVELOPER_EMAIL",
+      "kind": "config",
+      "occurrences": 2,
+      "description": "EZcount developer_email (billing account)"
+    },
+    {
+      "token": "{{TPL:BOT_NAME}}",
+      "name": "BOT_NAME",
+      "kind": "config",
+      "occurrences": 1,
+      "description": "n8n workflow display name"
+    }
+  ],
+  "requiredSecrets": [
+    "GEMINI_API_KEY",
+    "EZCOUNT_API_KEY"
+  ],
+  "requiredConfig": [
+    "NOTIFY_GROUP_ID",
+    "SUPABASE_REF",
+    "DEVELOPER_EMAIL",
+    "BOT_NAME"
+  ],
+  "promptToken": "SYSTEM_PROMPT",
+  "credentials": [
+    "supabaseApi",
+    "googlePalmApi",
+    "httpHeaderAuth",
+    "smtp"
+  ]
+}

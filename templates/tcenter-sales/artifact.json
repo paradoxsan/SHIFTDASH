@@ -1,0 +1,17 @@
+{
+  "meta": {
+    "id": "tcenter-sales",
+    "name": "T-CENTER Sales Bot",
+    "version": 1,
+    "sourceWorkflowId": "KIIGQZPxugci8i1j",
+    "description": "WhatsApp sales/orders bot: Gemini agent + Supabase queue/orders + EZcount invoicing + WHAPI channel. Generalized from the live 92-node T-CENTER workflow."
+  },
+  "n8nTemplate": "workflow.template.json",
+  "bindings": "bindings.json",
+  "fingerprint": "fingerprint.json",
+  "dbMigrations": ["migrations/0001_bot_schema.sql"],
+  "credentials": ["supabaseApi", "googlePalmApi", "httpHeaderAuth", "smtp"],
+  "requiredSecrets": ["GEMINI_API_KEY", "EZCOUNT_API_KEY"],
+  "requiredConfig": ["SUPABASE_REF", "NOTIFY_GROUP_ID", "DEVELOPER_EMAIL", "BOT_NAME"],
+  "promptToken": "SYSTEM_PROMPT"
+}

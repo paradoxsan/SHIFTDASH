@@ -111,3 +111,52 @@ export interface SheetLead {
 export interface ApiError {
   error: string;
 }
+
+// ── Operator quick-wins (BotOps Phase 5) ──────────────────────────────────────
+export interface QueueItem {
+  id: number | string;
+  chatId: string | null;
+  status: string;
+  attempts: number;
+  error: string | null;
+  createdAt: string | null;
+  requeuable: boolean;
+  reason?: string; // why it is NOT requeuable
+}
+
+export interface ChaseOrder {
+  id: number | string;
+  chatId: string | null;
+  invoiceName: string | null;
+  total: number | null;
+  status: string;
+  hasLink: boolean;
+  humanActive: boolean; // a human took over this chat → don't auto-chase
+  chaseable: boolean;
+  reason?: string;
+}
+
+export interface WatchlistItem {
+  chatId: string;
+  active: boolean;
+  silencedUntil: string | null;
+  updatedAt: string | null;
+  expired: boolean; // silenced_until is in the past (bot may have auto-resumed)
+}
+
+export interface ExecutionDetail {
+  id: string;
+  workflowId: string | null;
+  workflowName: string | null;
+  status: ExecStatus;
+  mode: string | null;
+  startedAt: string | null;
+  stoppedAt: string | null;
+  durationMs: number | null;
+  failedNode: string | null;
+  errorMessage: string | null;
+  errorDescription: string | null;
+  lastNodeExecuted: string | null;
+  inputSample: unknown; // the item the failed node was working on, when available
+  failureRate24h: { errors: number; total: number } | null;
+}

@@ -8,6 +8,7 @@ import type {
   N8nNode,
   N8nExecution,
   ExecStatus,
+  ExecutionDetail,
 } from "./types";
 
 function headers(): HeadersInit {
@@ -157,4 +158,117 @@ export async function getExecution(id: string): Promise<unknown> {
   const res = await fetch(u, { headers: headers(), cache: "no-store" });
   if (!res.ok) throw new Error(`n8n /executions/${id} ${res.status}: ${await res.text()}`);
   return res.json();
+}
+
+// ── Error drill-down (Phase 5) ────────────────────────────────────────────────
+interface RawRunNode {
+  error?: { message?: string; description?: string; stack?: string } | null;
+  data?: { main?: unknown };
+  source?: ({ previousNode?: string } | null)[];
+}
+interface RawExecutionDetail extends RawExecution {
+  workflowData?: { name?: string };
+  data?: {
+    resultData?: {
+      lastNodeExecuted?: string;
+      error?: { message?: string; description?: string } | null;
+      runData?: Record<string, RawRunNode[]>;
+    };
+  };
+}
+
+function firstItemJson(node: RawRunNode | undefined): unknown {
+  // runData[node][0].data.main[0][0].json — the item the node emitted/worked on.
+  const main = node?.data?.main as unknown;
+  if (!Array.isArray(main)) return null;
+  const branch = main[0];
+  if (!Array.isArray(branch)) return null;
+  const item = branch[0] as { json?: unknown } | undefined;
+  return item?.json ?? null;
+}
+
+/**
+ * Pure: distil a raw n8n execution (includeData=true) into the failed node, its
+ * error, and the item it was working on. `names` maps workflowId → name.
+ */
+export function parseExecutionDetail(raw: RawExecutionDetail, names: Record<string, string> = {}): ExecutionDetail {
+  const started = raw.startedAt ?? null;
+  const stopped = raw.stoppedAt ?? null;
+  const durationMs =
+    started && stopped ? new Date(stopped).getTime() - new Date(started).getTime() : null;
+  const wfId = raw.workflowId != null ? String(raw.workflowId) : null;
+
+  const result = raw.data?.resultData;
+  const runData = result?.runData ?? {};
+  const lastNode = result?.lastNodeExecuted ?? null;
+
+  // The failed node = lastNodeExecuted if it carries an error, else the first
+  // node in runData with an error attached.
+  let failedNode: string | null = null;
+  if (lastNode && runData[lastNode]?.some((r) => r?.error)) {
+    failedNode = lastNode;
+  } else {
+    for (const [name, runs] of Object.entries(runData)) {
+      if (runs?.some((r) => r?.error)) {
+        failedNode = name;
+        break;
+      }
+    }
+  }
+
+  const failedRun = failedNode ? runData[failedNode]?.find((r) => r?.error) : undefined;
+  const nodeErr = failedRun?.error ?? null;
+  const errorMessage = nodeErr?.message ?? result?.error?.message ?? null;
+  const errorDescription = nodeErr?.description ?? result?.error?.description ?? null;
+
+  // Input the failed node was working on: prefer its own emitted item; a failing
+  // node often emits nothing, so trace the node that FED it (runData `source`),
+  // then fall back to the last node's item.
+  const feedingNode = failedRun?.source?.find((s) => s?.previousNode)?.previousNode;
+  const inputSample =
+    firstItemJson(failedRun) ??
+    (feedingNode ? firstItemJson(runData[feedingNode]?.[0]) : null) ??
+    (lastNode && lastNode !== failedNode ? firstItemJson(runData[lastNode]?.[0]) : null);
+
+  return {
+    id: String(raw.id),
+    workflowId: wfId,
+    workflowName: (wfId && names[wfId]) || raw.workflowData?.name || null,
+    status: mapStatus(raw),
+    mode: raw.mode ?? null,
+    startedAt: started,
+    stoppedAt: stopped,
+    durationMs,
+    failedNode,
+    errorMessage,
+    errorDescription,
+    lastNodeExecuted: lastNode,
+    inputSample,
+    failureRate24h: null,
+  };
+}
+
+/** Enriched execution detail: parsed failure + 24h failure rate for its workflow. */
+export async function getExecutionDetail(id: string): Promise<ExecutionDetail> {
+  const u = new URL(url(`/executions/${id}`));
+  u.searchParams.set("includeData", "true");
+  const res = await fetch(u, { headers: headers(), cache: "no-store" });
+  if (!res.ok) throw new Error(`n8n /executions/${id} ${res.status}: ${await res.text()}`);
+  const raw = (await res.json()) as RawExecutionDetail;
+  const detail = parseExecutionDetail(raw, await workflowNameMap());
+
+  if (detail.workflowId) {
+    try {
+      const recent = await listExecutions({ workflowId: detail.workflowId, limit: 100 });
+      const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+      const within = recent.filter((e) => e.startedAt && new Date(e.startedAt).getTime() >= cutoff);
+      detail.failureRate24h = {
+        errors: within.filter((e) => e.status === "error").length,
+        total: within.length,
+      };
+    } catch {
+      /* non-fatal: leave failureRate24h null */
+    }
+  }
+  return detail;
 }

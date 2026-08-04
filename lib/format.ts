@@ -64,6 +64,7 @@ const MEDIA_LABELS: Record<string, string> = {
   contact: "👤 איש קשר",
   gif: "🎬 GIF",
   poll: "📊 סקר",
+  link_preview: "🔗 קישור",
 };
 
 /** Human label for a non-text WhatsApp message type. */

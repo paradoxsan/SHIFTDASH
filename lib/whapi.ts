@@ -21,6 +21,27 @@ export function hasWhapi(ref: string): boolean {
   return Boolean(env.whapiTokens()[ref]);
 }
 
+/**
+ * Cheapest honest liveness probe for a channel: ask for one chat. A 401/403
+ * means the token is dead, any other failure means the channel is unreachable.
+ * n8n can look perfectly healthy while the WhatsApp number is disconnected, and
+ * without this nothing in the system would notice.
+ */
+export async function probeChannel(ref: string): Promise<{ ok: boolean; detail?: string }> {
+  try {
+    const u = new URL(`${env.whapiBaseUrl()}/chats`);
+    u.searchParams.set("count", "1");
+    const res = await fetch(u, { headers: headers(ref), cache: "no-store" });
+    if (res.ok) return { ok: true };
+    if (res.status === 401 || res.status === 403) {
+      return { ok: false, detail: `טוקן לא תקף (${res.status})` };
+    }
+    return { ok: false, detail: `WHAPI ${res.status}` };
+  } catch (e) {
+    return { ok: false, detail: e instanceof Error ? e.message : "לא ניתן להגיע ל-WHAPI" };
+  }
+}
+
 interface RawChat {
   id: string;
   name?: string;
@@ -28,6 +49,7 @@ interface RawChat {
   unread?: number;
   last_message?: {
     text?: { body?: string };
+    link_preview?: { body?: string; url?: string };
     caption?: string;
     type?: string;
     timestamp?: number;
@@ -51,7 +73,12 @@ export async function listChats(ref: string): Promise<WhapiChat[]> {
       return {
         id: c.id,
         name: c.name || contactName || c.id?.split("@")[0] || "—",
-        lastMessage: messagePreview(lm?.type, lm?.text?.body, lm?.caption) || null,
+        lastMessage:
+          messagePreview(
+            lm?.type,
+            lm?.text?.body ?? lm?.link_preview?.body ?? lm?.link_preview?.url,
+            lm?.caption
+          ) || null,
         timestamp: lm?.timestamp ?? c.timestamp ?? null,
         unread: c.unread ?? 0,
       };
@@ -65,6 +92,7 @@ interface RawMessage {
   type?: string;
   timestamp?: number;
   text?: { body?: string };
+  link_preview?: { body?: string; url?: string; preview?: string };
   caption?: string;
   [key: string]: unknown;
 }
@@ -83,11 +111,15 @@ export async function listMessages(ref: string, chatId: string): Promise<WhapiMe
         m.type === "image" || m.type === "video" || m.type === "sticker" || m.type === "gif"
           ? sub?.link ?? null
           : null;
+      // WHAPI auto-converts text containing a URL into type "link_preview" with
+      // the actual text in link_preview.body — fall back to that so payment-link
+      // sends and other URL-bearing messages render as their text in the UI.
+      const linkText = m.link_preview?.body ?? m.link_preview?.url ?? null;
       return {
         id: m.id,
         fromMe: Boolean(m.from_me),
         type: m.type ?? "text",
-        text: m.text?.body ?? null,
+        text: m.text?.body ?? linkText,
         caption: sub?.caption ?? m.caption ?? null,
         timestamp: m.timestamp ?? null,
         mediaUrl,

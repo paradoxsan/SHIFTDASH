@@ -57,7 +57,7 @@ export async function computeMetrics(ref: string, allow?: string[]): Promise<Bot
 
     // Stuck / failed messages
     if (hasT("inbox") && hasColumn(schema, "inbox", "status")) {
-      sel.push(`(select count(*) from public.inbox where status = 'failed') as failed_messages`);
+      sel.push(`(select count(*) from public.inbox where status in ('failed','error')) as failed_messages`);
     } else if (hasT("inbox") && hasColumn(schema, "inbox", "attempts")) {
       sel.push(`(select count(*) from public.inbox where attempts > 2) as failed_messages`);
     } else {

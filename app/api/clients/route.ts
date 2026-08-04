@@ -1,6 +1,6 @@
 import { ok, fail } from "@/lib/api-helpers";
 import { env } from "@/lib/env";
-import { getClients, clientTables, toPublic, WORKSPACES } from "@/lib/registry";
+import { loadClients, clientTables, toPublic, WORKSPACES } from "@/lib/registry";
 import { introspect } from "@/lib/supabase-management";
 import { computeMetrics } from "@/lib/metrics";
 
@@ -11,7 +11,7 @@ export async function GET() {
   try {
     const tokens = env.whapiTokens();
     const clients = await Promise.all(
-      getClients().map(async (c) => {
+      (await loadClients()).map(async (c) => {
         let tables: string[] = [];
         try {
           const schema = await introspect(c.supabaseRef);

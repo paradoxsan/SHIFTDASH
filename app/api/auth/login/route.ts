@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { checkPassword, createSessionToken, SESSION_COOKIE, SESSION_TTL_SEC } from "@/lib/auth";
+import { checkPassword, createSessionTokenV2, SESSION_COOKIE, SESSION_TTL_SEC } from "@/lib/auth";
+import { env } from "@/lib/env";
 
 export const runtime = "nodejs";
 
@@ -13,7 +14,9 @@ export async function POST(req: NextRequest) {
   if (!checkPassword(body.password)) {
     return NextResponse.json({ error: "סיסמה שגויה" }, { status: 401 });
   }
-  const token = await createSessionToken();
+  // Shared-password login maps to an identity so RBAC/audit have an actor.
+  const email = env.allowedEmails()[0] ?? "password-login@local";
+  const token = await createSessionTokenV2({ email, role: "owner" });
   const res = NextResponse.json({ ok: true });
   res.cookies.set(SESSION_COOKIE, token, {
     httpOnly: true,

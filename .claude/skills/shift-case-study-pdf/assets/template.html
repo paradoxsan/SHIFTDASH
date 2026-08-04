@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<style>
+/* ===== Fonts: Google Sans stand-in (Inter, Latin) + Heebo (Hebrew) =====
+   Same pairing as the Shift quote template so the case study sits in the
+   identical visual family. Inter carries Latin/numbers, Heebo carries Hebrew. */
+@font-face {
+  font-family: 'GoogleSans';
+  src: url('fonts/Inter-Regular.ttf') format('truetype');
+  font-weight: 400; font-style: normal;
+}
+@font-face {
+  font-family: 'GoogleSans';
+  src: url('fonts/Inter-Bold.ttf') format('truetype');
+  font-weight: 700; font-style: normal;
+}
+@font-face {
+  font-family: 'Heebo';
+  src: url('fonts/Heebo-Regular.ttf') format('truetype');
+  font-weight: 400; font-style: normal;
+}
+@font-face {
+  font-family: 'Heebo';
+  src: url('fonts/Heebo-Bold.ttf') format('truetype');
+  font-weight: 700; font-style: normal;
+}
+
+@page {
+  size: A4;
+  margin: 0;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  font-family: 'Heebo', 'GoogleSans', sans-serif;
+  color: #2b2b2b;
+  direction: rtl;
+}
+
+/* Full-bleed A4 canvas with the extracted Shift background (paper, border,
+   chevron watermark, »SHIFT logo) — identical on every page. */
+.page {
+  position: relative;
+  width: 210mm;
+  height: 297mm;
+  background-image: url('background.png');
+  background-size: cover;
+  background-position: center;
+  page-break-after: always;
+  overflow: hidden;
+}
+.page:last-child { page-break-after: auto; }
+
+/* Content sits inside the printed border frame, clear of the corner marks */
+.content {
+  position: absolute;
+  top: 22mm;
+  right: 24mm;
+  left: 24mm;
+  bottom: 26mm;
+}
+
+/* ---- Typographic scale (matched to the quote template) ---- */
+.doc-kicker {
+  font-family: 'GoogleSans', sans-serif;
+  font-weight: 700;
+  font-size: 11pt;
+  letter-spacing: 3px;
+  text-align: center;
+  color: #6a6a6a;
+  margin-bottom: 3mm;
+}
+
+.doc-title {
+  font-family: 'Heebo', sans-serif;
+  font-weight: 700;
+  font-size: 25pt;
+  text-align: center;
+  color: #1c1c1c;
+  margin-bottom: 5mm;
+  letter-spacing: -0.2px;
+  line-height: 1.25;
+}
+
+.subline {
+  font-weight: 700;
+  font-size: 12.5pt;
+  text-align: center;
+  color: #1c1c1c;
+  margin-bottom: 7mm;
+}
+
+/* A short bold lead paragraph under the title — the one-line "what this is" */
+.lead {
+  font-weight: 700;
+  font-size: 12.5pt;
+  line-height: 1.7;
+  text-align: center;
+  color: #1c1c1c;
+  margin-bottom: 8mm;
+}
+
+.intro {
+  font-weight: 400;
+  font-size: 11.5pt;
+  line-height: 1.72;
+  text-align: right;
+  color: #2b2b2b;
+  margin-bottom: 7mm;
+}
+
+.section-title {
+  font-weight: 700;
+  font-size: 14.5pt;
+  text-align: right;
+  color: #1c1c1c;
+  margin-top: 7mm;
+  margin-bottom: 4mm;
+}
+.section-title.accent {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  text-decoration-thickness: 1.5px;
+}
+
+.body-text {
+  font-weight: 400;
+  font-size: 11.5pt;
+  line-height: 1.72;
+  text-align: right;
+  color: #2b2b2b;
+  margin-bottom: 4.5mm;
+}
+
+/* Latin runs (API, N8N, WHAPI, brand names, numbers) lean on the Google-Sans
+   stand-in so they stay crisp inside RTL lines. */
+.latin { font-family: 'GoogleSans', sans-serif; }
+
+/* Bold lead-in inside a paragraph: "הבעיה:" / "התוצאה:" etc. */
+.label { font-weight: 700; color: #1c1c1c; }
+
+/* ---- Results stat strip ----
+   A centered row of big-number cards used for the headline results. */
+.stat-row {
+  display: flex;
+  flex-direction: row-reverse;
+  justify-content: center;
+  gap: 9mm;
+  margin-top: 5mm;
+  margin-bottom: 6mm;
+}
+.stat {
+  text-align: center;
+  min-width: 38mm;
+}
+.stat .num {
+  font-family: 'GoogleSans', sans-serif;
+  font-weight: 700;
+  font-size: 30pt;
+  line-height: 1.05;
+  color: #1c1c1c;
+}
+.stat .cap {
+  font-weight: 400;
+  font-size: 10.5pt;
+  line-height: 1.45;
+  color: #4a4a4a;
+  margin-top: 2mm;
+}
+
+/* A centered emphatic banner (closing line) */
+.banner {
+  font-weight: 700;
+  font-size: 16pt;
+  line-height: 1.55;
+  text-align: center;
+  color: #1c1c1c;
+  margin-top: 4mm;
+  margin-bottom: 8mm;
+}
+.banner .u {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  text-decoration-thickness: 1.5px;
+}
+
+/* Two-column signature block — anchored to the right of the text column at a
+   fixed width so the leftmost signer always clears the bottom-right »SHIFT
+   logo, exactly like the quote template. */
+.signatures {
+  display: flex;
+  flex-direction: row-reverse;
+  justify-content: flex-start;
+  gap: 14mm;
+  width: 118mm;
+  margin: 8mm 0 0 0;
+}
+.sig {
+  text-align: center;
+  width: 52mm;
+}
+.sig .name {
+  font-weight: 700;
+  font-size: 13pt;
+  color: #1c1c1c;
+  margin-bottom: 1mm;
+}
+.sig .org {
+  font-family: 'GoogleSans', sans-serif;
+  font-weight: 700;
+  font-size: 10.5pt;
+  letter-spacing: 1px;
+  color: #2b2b2b;
+}
+
+.gap-sm { margin-bottom: 4mm; }
+.gap-md { margin-bottom: 7mm; }
+</style>
+</head>
+<body>
+{{PAGES}}
+</body>
+</html>

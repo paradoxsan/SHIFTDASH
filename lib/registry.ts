@@ -4,6 +4,9 @@
 // CRM Google Sheet. Two workspaces: "mine" (Shift Digital, the agency) and
 // "clients" (the businesses we run bots for).
 
+import { loadBotRows, type BotRow } from "./control-plane";
+import { ForbiddenError } from "./rbac";
+
 export type Workspace = "mine" | "clients";
 
 export interface ClientDef {
@@ -66,14 +69,74 @@ export const WORKSPACES: { id: Workspace; label: string }[] = [
   { id: "clients", label: "לקוחות" },
 ];
 
+// ── Control-plane–backed registry (BotOps Phase 2) ────────────────────────────
+// The static CLIENTS array above is now the SEED + offline FALLBACK. At runtime
+// the source of truth is the `botops` control-plane schema. A sync cached
+// snapshot keeps existing (sync) consumers working; routes call loadClients() to
+// refresh from the DB. Adding a tenant/bot row makes a client appear with no redeploy.
+function rowToClient(r: BotRow): ClientDef {
+  return {
+    id: r.slug,
+    name: r.name,
+    workspace: r.workspace,
+    supabaseRef: r.supabase_ref,
+    tables: r.table_include?.length ? r.table_include : undefined,
+    excludeTables: r.table_exclude?.length ? r.table_exclude : undefined,
+    n8nPrefixes: r.n8n_prefixes ?? [],
+    whapiKey: r.whapi_key ?? undefined,
+    sheetId: r.sheet_id ?? undefined,
+    accent: r.accent ?? undefined,
+  };
+}
+
+let runtimeClients: ClientDef[] | null = null;
+let loadedAt = 0;
+const REGISTRY_TTL_MS = 60_000;
+
+/** Sync snapshot: control-plane data once loaded, otherwise the static seed. */
+export function getClientsCached(): ClientDef[] {
+  return runtimeClients ?? CLIENTS;
+}
+
+/** Refresh (and cache) the registry from the control-plane; falls back to the seed. */
+export async function loadClients(force = false): Promise<ClientDef[]> {
+  if (!force && runtimeClients && Date.now() - loadedAt < REGISTRY_TTL_MS) {
+    return runtimeClients;
+  }
+  try {
+    const rows = await loadBotRows();
+    if (rows.length > 0) {
+      runtimeClients = rows.map(rowToClient);
+      loadedAt = Date.now();
+    }
+  } catch {
+    // Control-plane unreachable — keep the last good cache or the static seed.
+  }
+  return getClientsCached();
+}
+
 export function getClients(): ClientDef[] {
-  return CLIENTS;
+  return getClientsCached();
 }
 export function getClient(id: string): ClientDef | null {
-  return CLIENTS.find((c) => c.id === id) ?? null;
+  return getClientsCached().find((c) => c.id === id) ?? null;
+}
+
+/** The set of data-plane Supabase refs we manage. */
+export function knownRefs(): Set<string> {
+  return new Set(getClientsCached().map((c) => c.supabaseRef));
+}
+
+/**
+ * Guard a URL-supplied `[ref]` before any data-plane call. The Management PAT is
+ * org-wide, so an unvalidated ref would let an authenticated user read/write ANY
+ * project under the org. Throws ForbiddenError (→ 403) for an unknown ref.
+ */
+export function assertKnownRef(ref: string): void {
+  if (!knownRefs().has(ref)) throw new ForbiddenError(`unknown project ref: ${ref}`);
 }
 export function clientsByWorkspace(ws: Workspace): ClientDef[] {
-  return CLIENTS.filter((c) => c.workspace === ws);
+  return getClientsCached().filter((c) => c.workspace === ws);
 }
 
 /** Resolve which of a project's tables belong to this client. */

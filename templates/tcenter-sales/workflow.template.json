@@ -1,0 +1,3326 @@
+{
+  "name": "{{TPL:BOT_NAME}}",
+  "nodes": [
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.body.messages[0].from_me }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "c2",
+              "leftValue": "={{ $json.body.messages[0].chat_id }}",
+              "rightValue": "@s.whatsapp.net",
+              "operator": {
+                "type": "string",
+                "operation": "endsWith"
+              }
+            },
+            {
+              "id": "c3",
+              "leftValue": "={{ ($json.body.messages || []).some(m => (m.text && m.text.body) || (m.action && m.action.type === 'edit' && m.action.edited_content && m.action.edited_content.body)) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b590404c-98fe-4515-8f61-aa2bed4ff2c7",
+      "name": "IF Incoming Message",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -6976,
+        4784
+      ]
+    },
+    {
+      "parameters": {
+        "tableId": "message_buffer",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "chat_id",
+              "fieldValue": "={{ $('Webhook (WHAPI In)').item.json.body.messages[0].chat_id }}"
+            },
+            {
+              "fieldId": "message",
+              "fieldValue": "={{ $json.userText }}"
+            }
+          ]
+        }
+      },
+      "id": "9ec1b666-6f16-4efb-a78c-6703c913fae7",
+      "name": "Buffer: Insert Message",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -6528,
+        4784
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "rKqZ7xeWEdslSGJR",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": 10
+      },
+      "id": "5baeec71-7dbe-4265-a39b-ec3a0ad36c10",
+      "name": "Wait 6s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -6304,
+        4784
+      ],
+      "webhookId": "841f7521-1125-461b-9fa7-de70e8b48971"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "message_buffer",
+        "returnAll": true,
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "chat_id",
+              "condition": "eq",
+              "keyValue": "={{ $('Extract Fields').item.json.chatId }}"
+            }
+          ]
+        }
+      },
+      "id": "686e62db-942b-477e-82c6-b0dea5d2d91b",
+      "name": "Buffer: Get All",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -6080,
+        4784
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "rKqZ7xeWEdslSGJR",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = items.map(i => i.json).filter(r => r && r.message != null);\nrows.sort((a,b) => { const ta = new Date(a.created_at).getTime() - new Date(b.created_at).getTime(); if (ta !== 0) return ta; return (a.id||0) - (b.id||0); });\nif (rows.length === 0) { return []; }\nconst myId = $('Buffer: Insert Message').item.json.id;\nconst lastId = rows[rows.length - 1].id;\nif (myId !== lastId) { return []; }\nconst mergedText = rows.map(r => r.message).join('\\n');\nconst chatId = $('Extract Fields').item.json.chatId;\nconst senderName = $('Extract Fields').item.json.senderName;\nreturn [{ json: { chatId, senderName, mergedText, bufferIds: rows.map(r => r.id) } }];"
+      },
+      "id": "23e36db6-cea7-487b-8a8c-bb94f4eb29f7",
+      "name": "Debounce: Am I Last?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -5856,
+        4784
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "delete",
+        "tableId": "message_buffer",
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "chat_id",
+              "condition": "eq",
+              "keyValue": "={{ $('Extract Fields').item.json.chatId }}"
+            }
+          ]
+        }
+      },
+      "id": "d694b290-01e4-4729-a027-a3117ebc9718",
+      "name": "Buffer: Clear",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -5632,
+        4784
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "rKqZ7xeWEdslSGJR",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "human_mode",
+        "returnAll": true,
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "chat_id",
+              "condition": "eq",
+              "keyValue": "={{ $('Media: Am I Last?').isExecuted ? $('Media: Am I Last?').item.json.chatId : $('Debounce: Am I Last?').item.json.chatId }}"
+            }
+          ]
+        }
+      },
+      "id": "ebcc125c-4102-424d-92c0-f7a92ade4c8a",
+      "name": "Check Human Mode",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -5408,
+        4768
+      ],
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "rKqZ7xeWEdslSGJR",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = items.map(i => i.json).filter(r => r && r.chat_id);\nconst WINDOW_MIN = 30;\nlet silenced = false;\nfor (const r of rows) {\n  if (r.active !== true) continue;\n  if (r.silenced_until) { if (Date.now() < new Date(r.silenced_until).getTime()) { silenced = true; break; } }\n  else if (r.updated_at) { const ageMin = (Date.now() - new Date(r.updated_at).getTime())/60000; if (ageMin < WINDOW_MIN) { silenced = true; break; } }\n}\nif (silenced) { return []; }\nconst d = $('Media: Am I Last?').isExecuted ? $('Media: Am I Last?').item.json : $('Debounce: Am I Last?').item.json;\n\n// ── V2.9.2 business-hours awareness (Asia/Jerusalem, DST-safe) ──\n// Open: Sun-Thu 08:30-16:30, Fri 08:30-14:00, Sat closed.\nconst _p = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Jerusalem', weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(new Date()).map(x => [x.type, x.value]));\nconst _DOW = { Sun:0, Mon:1, Tue:2, Wed:3, Thu:4, Fri:5, Sat:6 }[_p.weekday];\nconst _HE = ['\\u05e8\\u05d0\\u05e9\\u05d5\\u05df','\\u05e9\\u05e0\\u05d9','\\u05e9\\u05dc\\u05d9\\u05e9\\u05d9','\\u05e8\\u05d1\\u05d9\\u05e2\\u05d9','\\u05d7\\u05de\\u05d9\\u05e9\\u05d9','\\u05e9\\u05d9\\u05e9\\u05d9','\\u05e9\\u05d1\\u05ea'];\nconst _hr = _p.hour === '24' ? '00' : _p.hour;\nconst _mins = Number(_hr) * 60 + Number(_p.minute);\nlet _open;\nif (_DOW === 6) _open = false;\nelse if (_DOW === 5) _open = _mins >= 510 && _mins < 840;\nelse _open = _mins >= 510 && _mins < 990;\nconst _hhmm = _hr + ':' + _p.minute;\nconst _state = _open ? '\\u05e4\\u05ea\\u05d5\\u05d7 \\u05db\\u05e8\\u05d2\\u05e2' : '\\u05e1\\u05d2\\u05d5\\u05e8 \\u05db\\u05e8\\u05d2\\u05e2 (\\u05de\\u05d7\\u05d5\\u05e5 \\u05dc\\u05e9\\u05e2\\u05d5\\u05ea \\u05d4\\u05e4\\u05e2\\u05d9\\u05dc\\u05d5\\u05ea)';\nconst _note = '[\\u05d4\\u05de\\u05e2\\u05e8\\u05db\\u05ea: \\u05e2\\u05db\\u05e9\\u05d9\\u05d5 \\u05d9\\u05d5\\u05dd ' + _HE[_DOW] + ', \\u05d4\\u05e9\\u05e2\\u05d4 ' + _hhmm + '. \\u05d4\\u05e2\\u05e1\\u05e7 ' + _state + '.]';\nconst mergedText = d.mergedText + '\\n' + _note;\n\nreturn [{ json: { chatId: d.chatId, senderName: d.senderName, mergedText, businessOpen: _open } }];"
+      },
+      "id": "e08885bc-6450-4180-8fad-468ac2929082",
+      "name": "Bot Allowed?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -5184,
+        4768
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $('Bot Allowed?').item.json.mergedText }}",
+        "options": {
+          "systemMessage": "{{TPL:SYSTEM_PROMPT}}"
+        }
+      },
+      "id": "0d6596e3-5af0-4506-a60d-b92ad31dac0b",
+      "name": "T-CENTER Sales Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        -4736,
+        4768
+      ]
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-3.1-flash-lite",
+        "options": {
+          "maxOutputTokens": 1024
+        }
+      },
+      "id": "336987d0-c271-4847-ad93-e12c5ef0a95f",
+      "name": "Google Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        -4736,
+        4992
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "LO3BNRK6DpZrsqah",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Bot Allowed?').item.json.chatId }}",
+        "contextWindowLength": 15
+      },
+      "id": "c0a2f0da-c49a-46f0-aeec-af1191c91c78",
+      "name": "Simple Memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        -4608,
+        4992
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "let out = $json.output || '';\nout = out.replace(/THINKING:[\\s\\S]*?(?=\\n\\s*\\n|$)/gi, '');\nout = out.replace(/^\\s*Plan:\\s*[\\s\\S]*?(?=\\n\\s*\\n|$)/gim, '');\nout = out.replace(/^\\s*\\d+\\.\\s+[A-Za-z][^\\n]*$/gm, '');\nconst m = out.match(/\\[ORDER:\\s*(\\{[\\s\\S]*?\\})\\s*\\]/);\nlet summary = out; let total = 0, desc = '', isOrder = false; let order = {};\nif (m) { try { order = JSON.parse(m[1]); total = Number(order.total) || 0; desc = (order.desc || 'הזמנה T-CENTER').toString(); isOrder = total > 0; } catch (e) { const t = m[1].match(/\"total\"\\s*:\\s*([0-9]+(?:\\.[0-9]+)?)/); if (t) { total = Number(t[1]); isOrder = total > 0; desc = 'הזמנה T-CENTER'; } order = {}; } summary = out.replace(/\\[ORDER:[\\s\\S]*?\\]/, ''); }\nsummary = summary.replace(/\\*/g, '');\n// V2.8 FIX: strip any link the agent may have leaked (real EZcount link is sent separately)\nsummary = summary.replace(/https?:\\/\\/\\S+/gi, '').replace(/[ \\t]{2,}/g, ' '); summary = summary.replace(/\\n{3,}/g, '\\n\\n').trim();\n// V2.9.3 escalation tag (machine-only, removed from the customer reply)\nlet escalate = false, escalateReason = '';\nconst _em = out.match(/\\[ESCALATE:\\s*([^\\]]*)\\]/i);\nif (_em) { escalate = true; escalateReason = (_em[1]||'').trim() || 'דרוש נציג'; }\nsummary = summary.replace(/\\[ESCALATE:[^\\]]*\\]/gi, '').replace(/\\n{3,}/g, '\\n\\n').trim();\nif (isOrder && !summary) { summary = 'מעולה! סוגרים את ההזמנה ושולח לך לינק לתשלום 👇'; }\n\n// ---- V2.3 invoice-name guard: reject placeholder names ----\nconst BAD_NAME = /^\\s*(לקוח|לקוחה|על\\s*שמי|על\\s*שם\\s*הלקוח(ה)?|שם\\s*הלקוח(ה)?|שמי|זה\\s*בסדר|מה\\s*שאתה\\s*רוצה|כל\\s*שם|אותו\\s*דבר|—|-)\\s*$/i;\nlet invName = (order.invoice_name || order.customer_name || '').toString().trim();\nif (BAD_NAME.test(invName)) { invName = ''; }\nconst dash = (v) => (v === undefined || v === null || v === '') ? '—' : String(v);\nconst src = $('Bot Allowed?').item.json;\n// ── V2.9.4 deterministic guard: never tell the customer we're closed while OPEN.\n// Gemini sometimes emits the closed-hours canned message on order-status / rep questions\n// even when the system note says \"פתוח כרגע\". businessOpen is the hard boolean from \"Bot Allowed?\".\nif (src.businessOpen === true && /מחוץ\\s+לשעות\\s+הפעילות/.test(summary)) {\n  summary = 'בנושא הזה אפשר להתקשר אלינו ונשמח לעזור: 0507506702 🙂\\nאפשר כמובן להמשיך גם כאן בוואטסאפ עם כל השאר.';\n}\nreturn [{ json: { chatId: src.chatId, senderName: src.senderName, summary, total, desc, isOrder, escalate, escalateReason,\n  o_name: dash(order.customer_name || src.senderName), o_invoice_name: dash(invName || src.senderName), o_invoice_clean: invName,\n  o_product: dash(order.product), o_quantity: dash(order.quantity), o_sizes: dash(order.sizes),\n  o_delivery: dash(order.delivery), o_address: dash(order.address), o_graphic: dash(order.has_graphic),\n  o_color: dash(order.color), o_print_location: dash(order.print_location),\n  o_phone: src.chatId.split('@')[0] } }];"
+      },
+      "id": "29938752-1849-4a85-b5ff-8958767f6eb2",
+      "name": "Parse Order",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -4384,
+        4768
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://gate.whapi.cloud/messages/text",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { to: $json.chatId, body: $json.summary, typing_time: 2 } }}",
+        "options": {}
+      },
+      "id": "ff1ba022-21a6-4962-b7e4-899c4d63a6f0",
+      "name": "Send Summary / Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -4160,
+        4768
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "F47Okhzog5sMGU7d",
+          "name": "Header Auth account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "co",
+              "leftValue": "={{ $('Approval Gate').item.json.isOrder }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "783fa212-fefe-4651-8cff-9be2307a04bf",
+      "name": "IF Order Closed",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -3712,
+        4768
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://gate.whapi.cloud/messages/text",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { to: $json.chatId, body: \"לתשלום מאובטח בכרטיס אשראי 👇\\n\" + $json.paymentLink } }}",
+        "options": {}
+      },
+      "id": "4cf3952d-a2bd-4c3a-8405-353676f00f9f",
+      "name": "Send Payment Link",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -1024,
+        4768
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "F47Okhzog5sMGU7d",
+          "name": "Header Auth account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "graphics",
+        "returnAll": true,
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "chat_id",
+              "condition": "eq",
+              "keyValue": "={{ $('Parse Order').item.json.chatId }}"
+            },
+            {
+              "keyName": "kind",
+              "condition": "neq",
+              "keyValue": "receipt"
+            }
+          ]
+        }
+      },
+      "id": "fea404d2-8b6e-4d1f-9a5a-419572721e17",
+      "name": "Graphics: Get All (for email)",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -800,
+        4592
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "rKqZ7xeWEdslSGJR",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = items.map(i => i.json).filter(r => r && r.file_b64);\nconst po = $('Parse Order').item.json;\nconst binary = {};\nconst captions = [];\nrows.slice(0, 5).forEach((r, idx) => { binary['att' + idx] = { data: r.file_b64, mimeType: r.mime || 'application/octet-stream', fileName: r.filename || ('graphic_' + idx) }; if (r.caption) captions.push('קובץ ' + (idx+1) + ': ' + r.caption); });\nconst attachKeys = Object.keys(binary).join(',');\nconst captionNote = captions.join(' | ');\nreturn [{ json: { ...po, attachCount: rows.length, attachKeys, captionNote }, binary }];"
+      },
+      "id": "e9248f11-41d9-47e6-a47b-f7bb6c014435",
+      "name": "Build Attachments",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -576,
+        4592
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "shiftdigital.co.il@gmail.com",
+        "toEmail": "Tcenter1970@gmail.com",
+        "subject": "=הזמנה חדשה — {{ $('Parse Order').item.json.o_product }} ({{ $('Parse Order').item.json.total }} ₪)",
+        "emailFormat": "text",
+        "text": "={{ `הזמנה חדשה התקבלה מהבוט 🎉\\n\\nשם: ${$('Parse Order').item.json.o_name}\\nשם לחשבונית: ${$('Parse Order').item.json.o_invoice_name}\\nטלפון: ${$('Parse Order').item.json.o_phone}\\nמוצר: ${$('Parse Order').item.json.o_product}\\nכמות: ${$('Parse Order').item.json.o_quantity}\\nמידות: ${$('Parse Order').item.json.o_sizes}\\nצבע: ${$('Parse Order').item.json.o_color}\\nמיקום הדפסה: ${$('Parse Order').item.json.o_print_location}\\nאספקה: ${$('Parse Order').item.json.o_delivery}\\nכתובת: ${$('Parse Order').item.json.o_address}\\nגרפיקה: ${$('Parse Order').item.json.o_graphic}\\nסכום לתשלום: ${$('Parse Order').item.json.total} ₪\\n\\nתיאור: ${$('Parse Order').item.json.desc}\\n\\nהערות מיקום על הקבצים: ${$('Build Attachments').item.json.captionNote || '—'}\\n\\nלינק תשלום שנשלח ללקוח: ${$('Payment Ready').item.json.paymentLink}\\n\\n— הקבצים/גרפיקות מצורפים למייל הזה. נשלח אוטומטית ממערכת הבוט` }}",
+        "options": {
+          "attachments": "={{ $json.attachKeys }}"
+        }
+      },
+      "id": "8a6ce4ef-55a4-4485-af2c-a2087034c987",
+      "name": "Email Order to T-Center",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        -352,
+        4592
+      ],
+      "webhookId": "c5f8dbfb-abda-474d-809c-86712477333c",
+      "credentials": {
+        "smtp": {
+          "id": "8OOkMYkgA26G6FSI",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ho",
+              "leftValue": "={{ $json.body.messages[0].from_me }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "hs",
+              "leftValue": "={{ $json.body.messages[0].source }}",
+              "rightValue": "api",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "879b0403-aeec-46da-b957-8b5cdc33cf44",
+      "name": "IF Agent Replied",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -9440,
+        4640
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "mn",
+              "leftValue": "={{ $json.body.messages[0].from_me }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "mm",
+              "leftValue": "={{ ['image','document'].includes($json.body.messages[0].type) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "f615271d-9254-4558-af95-47aa2952c71e",
+      "name": "IF Is Media (image/document)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -9440,
+        4240
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const m = $json.body.messages[0];\nconst type = m.type;\nconst media = m[type] || {};\nconst chatId = m.chat_id;\nconst phone = (chatId || '').split('@')[0];\nconst link = media.link || '';\nconst mid  = media.id || '';\nconst mime = media.mime_type || (type === 'image' ? 'image/jpeg' : 'application/octet-stream');\nconst ext  = (mime.split('/')[1] || 'bin').split(';')[0];\nconst filename = media.file_name || (type + '_' + Date.now() + '.' + ext);\nconst caption = (media.caption || '').toString().trim();\nreturn [{ json: { chatId, phone, type, link, mediaId: mid, mime, filename, caption, hasCaption: caption.length > 0, senderName: m.from_name || '' } }];"
+      },
+      "id": "7379b93a-49fb-4991-a6b5-ab1772688340",
+      "name": "Extract Media",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -9216,
+        4240
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.link || 'https://gate.whapi.cloud/media/' + $json.mediaId }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "aeac8507-71ee-4350-ab11-12707add5e34",
+      "name": "Download Media (binary)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -7424,
+        4496
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "F47Okhzog5sMGU7d",
+          "name": "Header Auth account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const meta = $('Extract Media').item.json;\nconst buf = await this.helpers.getBinaryDataBuffer(0, 'data');\nconst b64 = buf.toString('base64');\nconst bin = items[0].binary.data;\nreturn [{ json: { chat_id: meta.chatId, phone: meta.phone, file_b64: b64, mime: bin.mimeType || meta.mime, filename: bin.fileName || meta.filename, type: meta.type, caption: meta.caption || '', senderName: meta.senderName } }];"
+      },
+      "id": "f138d222-d8db-429f-8189-a5fd8e8d6f5e",
+      "name": "To Base64",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -7200,
+        4496
+      ]
+    },
+    {
+      "parameters": {
+        "tableId": "graphics",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "chat_id",
+              "fieldValue": "={{ $json.chat_id }}"
+            },
+            {
+              "fieldId": "file_b64",
+              "fieldValue": "={{ $json.file_b64 }}"
+            },
+            {
+              "fieldId": "mime",
+              "fieldValue": "={{ $json.mime }}"
+            },
+            {
+              "fieldId": "filename",
+              "fieldValue": "={{ $json.filename }}"
+            },
+            {
+              "fieldId": "caption",
+              "fieldValue": "={{ $json.caption }}"
+            },
+            {
+              "fieldId": "kind",
+              "fieldValue": "graphic"
+            }
+          ]
+        }
+      },
+      "id": "361d2eb3-68d7-4819-9e3d-6e592e349c9a",
+      "name": "Graphics: Insert",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -6976,
+        4496
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "rKqZ7xeWEdslSGJR",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "media_buffer",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "chat_id",
+              "fieldValue": "={{ $('To Base64').item.json.chat_id }}"
+            },
+            {
+              "fieldId": "message",
+              "fieldValue": "={{ $('To Base64').item.json.caption ? '[המערכת: הלקוח שלח תמונה/קובץ עם הטקסט: \"' + $('To Base64').item.json.caption + '\". אל תניח אוטומטית שזו הגרפיקה להדפסה — ייתכן שזו דוגמה/רפרנס לצבע או לסגנון. הבן מהטקסט של הלקוח מה הכוונה; אל תכתוב \"קיבלנו את הגרפיקה\" אלא אם באמת מדובר בקובץ הגרפיקה להדפסה.]' : '[המערכת: הלקוח שלח תמונה/קובץ בלי טקסט. אל תניח אוטומטית שזו הגרפיקה להדפסה — ייתכן שזו דוגמה/רפרנס לצבע או לסגנון. אם לא ברור, שאל בקצרה את הלקוח למה התמונה מתייחסת.]' }}"
+            }
+          ]
+        }
+      },
+      "id": "0ffde5b4-c295-4e12-9117-3ac744711a91",
+      "name": "Media → Buffer",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -6752,
+        4496
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "rKqZ7xeWEdslSGJR",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "mh1",
+              "name": "chatId",
+              "value": "={{ $('To Base64').item.json.chat_id }}",
+              "type": "string"
+            },
+            {
+              "id": "mh2",
+              "name": "senderName",
+              "value": "={{ $('To Base64').item.json.senderName }}",
+              "type": "string"
+            },
+            {
+              "id": "mh3",
+              "name": "userText",
+              "value": "={{ $('To Base64').item.json.caption ? '[המערכת: הלקוח שלח תמונה/קובץ עם הטקסט: \"' + $('To Base64').item.json.caption + '\". אל תניח אוטומטית שזו הגרפיקה להדפסה — ייתכן שזו דוגמה/רפרנס לצבע או לסגנון. הבן מהטקסט של הלקוח מה הכוונה; אל תכתוב \"קיבלנו את הגרפיקה\" אלא אם באמת מדובר בקובץ הגרפיקה להדפסה.]' : '[המערכת: הלקוח שלח תמונה/קובץ בלי טקסט. אל תניח אוטומטית שזו הגרפיקה להדפסה — ייתכן שזו דוגמה/רפרנס לצבע או לסגנון. אם לא ברור, שאל בקצרה את הלקוח למה התמונה מתייחסת.]' }}",
+              "type": "string"
+            },
+            {
+              "id": "mh4",
+              "name": "bufferInsertId",
+              "value": "={{ $('Media → Buffer').item.json.id }}",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "8679a975-6e13-4679-92c6-952e46268556",
+      "name": "Media Handoff",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -6528,
+        4496
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 10
+      },
+      "id": "15bf7559-56fc-4a7c-9a40-ce22cb1a896f",
+      "name": "Media Wait 6s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -6304,
+        4496
+      ],
+      "webhookId": "5c04c1d0-21d1-4da6-a1e4-dc74a112cead"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "media_buffer",
+        "returnAll": true,
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "chat_id",
+              "condition": "eq",
+              "keyValue": "={{ $('Media Handoff').item.json.chatId }}"
+            }
+          ]
+        }
+      },
+      "id": "274e11f5-d67b-4cc3-af43-5d1e6ad2354b",
+      "name": "Media: Get Buffer",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -6080,
+        4496
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "rKqZ7xeWEdslSGJR",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = items.map(i => i.json).filter(r => r && r.message != null);\nrows.sort((a,b) => { const ta = new Date(a.created_at).getTime() - new Date(b.created_at).getTime(); if (ta !== 0) return ta; return (a.id||0) - (b.id||0); });\nif (rows.length === 0) { return []; }\nconst myId = $('Media Handoff').item.json.bufferInsertId;\nconst lastId = rows[rows.length - 1].id;\nif (myId !== lastId) { return []; }\nconst mergedText = rows.map(r => r.message).join('\\n');\nconst chatId = $('Media Handoff').item.json.chatId;\nconst senderName = $('Media Handoff').item.json.senderName;\nreturn [{ json: { chatId, senderName, mergedText, bufferIds: rows.map(r => r.id) } }];"
+      },
+      "id": "100d07e7-32be-4265-aa79-f59bbf0c8970",
+      "name": "Media: Am I Last?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -5856,
+        4496
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "delete",
+        "tableId": "media_buffer",
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "chat_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.chatId }}"
+            }
+          ]
+        }
+      },
+      "id": "364949c3-3cfe-450c-89cb-8c277bba0df3",
+      "name": "Media: Clear Buffer",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -5632,
+        4496
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "rKqZ7xeWEdslSGJR",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// V2.9 — robust inbound text + quoted-reply context\nconst all = $json.body.messages || [];\nfunction bodyOf(m){\n  if (m.text && m.text.body) return m.text.body;\n  if (m.action && m.action.type === 'edit' && m.action.edited_content && m.action.edited_content.body)\n    return m.action.edited_content.body;\n  return '';\n}\nconst msgs = all.filter(m => m.from_me === false && bodyOf(m));\nconst chatId = (all[0] && all[0].chat_id) || '';\nconst senderName = (all[0] && (all[0].from_name)) || 'לקוח';\nlet userText = msgs.map(bodyOf).join('\\n');\n\n// Quoted-reply context: when the customer long-presses an older bot/team message\n// and replies to it, WhatsApp puts the quoted message in m.context. Without this\n// the agent sees 'שלחתי את הגרפיקה תסתכל' with no idea what was sent. Prepend a\n// system-style marker so the LLM can resolve the reference.\nlet quotedPrefix = '';\nfor (const m of msgs) {\n  const ctx = m.context || {};\n  const quotedContent = ctx.quoted_content || '';\n  const quotedType = ctx.quoted_type || '';\n  const quotedAuthor = ctx.quoted_author || '';\n  if (quotedContent || quotedType) {\n    const fromBot = quotedAuthor && quotedAuthor.indexOf('507506702') >= 0;\n    const who = fromBot ? 'בוט/הצוות' : 'הלקוח עצמו';\n    // quoted_content is a MessageContent OBJECT (varies by type), not a string — extract the\n    // meaningful text; never stringify the whole object (it carries a huge base64 preview).\n    let _qtext = '';\n    if (typeof quotedContent === 'string') { _qtext = quotedContent; }\n    else if (quotedContent && typeof quotedContent === 'object') { _qtext = quotedContent.body || quotedContent.caption || (quotedContent.text && quotedContent.text.body) || quotedContent.file_name || quotedContent.filename || quotedContent.name || quotedContent.address || ''; }\n    const _typeLabel = { image: 'תמונה', video: 'סרטון', document: 'קובץ', audio: 'הקלטה', voice: 'הקלטה קולית', sticker: 'מדבקה', location: 'מיקום', contact: 'איש קשר' }[quotedType] || (quotedType || 'מדיה');\n    const body = String(_qtext || ('(' + _typeLabel + ')')).slice(0, 280);\n    quotedPrefix += '[הלקוח השיב על הודעה קודמת מ-' + who + ': \"' + body + '\"]\\n';\n  }\n}\nif (quotedPrefix) userText = quotedPrefix + '\\n' + userText;\n\nif (!userText) { return []; }\nreturn [{ json: { chatId, senderName, userText } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -6752,
+        4784
+      ],
+      "id": "c40f0750-063e-43cb-a3f5-6e4ea1571cf1",
+      "name": "Extract Fields"
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -9664,
+        4688
+      ],
+      "id": "c569f8a8-b0ab-43f8-9574-5dc84a828a11",
+      "name": "Webhook (WHAPI In)"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "orders",
+        "returnAll": true,
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "chat_id",
+              "condition": "eq",
+              "keyValue": "={{ $('Parse Order').item.json.chatId }}"
+            }
+          ]
+        }
+      },
+      "id": "bc2ff50f-2253-4f99-a01b-f62b57e6b53d",
+      "name": "Lookup Orders",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -3488,
+        4768
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "rKqZ7xeWEdslSGJR",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const src = $('Parse Order').first().json;\nfunction h(s){let x=5381;for(let i=0;i<s.length;i++){x=((x<<5)+x)+s.charCodeAt(i);x=x&0xffffffff;}return (x>>>0).toString(16);}\nconst snapshot = { product:src.o_product, quantity:src.o_quantity, sizes:src.o_sizes, color:src.o_color, print_location:src.o_print_location, delivery:src.o_delivery, address:src.o_address, graphic:src.o_graphic, invoice_name:src.o_invoice_name, total:Number(src.total)||0, desc:src.desc };\nconst newHash = h(JSON.stringify([snapshot.product,snapshot.quantity,snapshot.sizes,snapshot.color,snapshot.print_location,snapshot.delivery,snapshot.address,snapshot.graphic,snapshot.invoice_name,snapshot.total]));\nconst rows = items.map(i=>i.json).filter(r=>r&&r.chat_id);\nrows.sort((a,b)=> new Date(b.created_at).getTime()-new Date(a.created_at).getTime());\nconst latest = rows[0]||null;\nlet action;\nif(!latest) action='new';\nelse if(latest.status==='paid') action='route_human';\nelse if(latest.status==='open' && latest.order_hash===newHash) action='reuse';\nelse if(latest.status==='open') action='replace';\nelse action='new';\nreturn [{ json: { chatId:src.chatId, action, newHash, snapshot, existingId: latest?latest.id:null, existingLink: latest?(latest.payment_link||''):'' } }];"
+      },
+      "id": "17952aee-67be-4d71-96ec-f0257d434ece",
+      "name": "Decide",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3264,
+        4768
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $('Decide').item.json.action }}",
+              "rightValue": "reuse",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "8a9cb07c-a598-4d6a-9c8d-54237732bd16",
+      "name": "IF Reuse",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -3040,
+        4768
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $('Decide').item.json.action }}",
+              "rightValue": "route_human",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "03765716-ef1e-4149-b45c-f71d20fe1fd8",
+      "name": "IF Route Human",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -2816,
+        4784
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $('Decide').item.json.action }}",
+              "rightValue": "replace",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "8bd54384-173e-400f-9428-68c4ff421aae",
+      "name": "IF Replace",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -2592,
+        4832
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "r1",
+              "name": "chatId",
+              "value": "={{ $('Parse Order').item.json.chatId }}",
+              "type": "string"
+            },
+            {
+              "id": "r2",
+              "name": "paymentLink",
+              "value": "={{ $('Decide').item.json.existingLink }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "bd5132b9-d2d0-4fb6-8818-4208c5b34011",
+      "name": "Reuse Link",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1472,
+        4432
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://gate.whapi.cloud/messages/text",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { to: $('Parse Order').item.json.chatId, body: \"\\u05d4\\u05d4\\u05d6\\u05de\\u05e0\\u05d4 \\u05db\\u05d1\\u05e8 \\u05e9\\u05d5\\u05dc\\u05de\\u05d4 \\u2014 \\u05e0\\u05e6\\u05d9\\u05d2 \\u05d9\\u05d9\\u05e6\\u05d5\\u05e8 \\u05d0\\u05d9\\u05ea\\u05da \\u05e7\\u05e9\\u05e8 \\u05dc\\u05db\\u05dc \\u05e9\\u05d9\\u05e0\\u05d5\\u05d9 \\ud83d\\ude4f\" } }}",
+        "options": {}
+      },
+      "id": "ccf4b1a2-8eae-4c87-98b1-eab4ba4843b0",
+      "name": "Send Paid Notice",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -2368,
+        4576
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "F47Okhzog5sMGU7d",
+          "name": "Header Auth account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "orders",
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $('Decide').item.json.existingId }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "status",
+              "fieldValue": "superseded"
+            },
+            {
+              "fieldId": "updated_at",
+              "fieldValue": "={{ $now.toISO() }}"
+            }
+          ]
+        }
+      },
+      "id": "dd243eff-aac4-412c-bca4-ad81407297e6",
+      "name": "Supersede Old",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -2368,
+        4768
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "rKqZ7xeWEdslSGJR",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.ezcount.co.il/api/createDoc",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {\n  api_key: \"{{TPL:EZCOUNT_API_KEY}}\",\n  developer_email: \"{{TPL:DEVELOPER_EMAIL}}\",\n  type: 300,\n  customer_name: ($('Parse Order').item.json.o_invoice_name && $('Parse Order').item.json.o_invoice_name !== '\\u2014' ? $('Parse Order').item.json.o_invoice_name : ($('Parse Order').item.json.senderName || '\\u05dc\\u05e7\\u05d5\\u05d7')),\n  customer_phone: $('Parse Order').item.json.chatId.split('@')[0],\n  item: [ { details: $('Parse Order').item.json.desc, amount: 1, price: $('Parse Order').item.json.total, vat_type: 'INC' } ],\n  dont_send_email: 1\n} }}",
+        "options": {}
+      },
+      "id": "da23b386-4741-4b4e-a2c8-d573da3b67f7",
+      "name": "Create EZcount Invoice",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -2144,
+        4832
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const uuid=$json.doc_uuid;\nconst chatId=$('Parse Order').item.json.chatId;\nif(!uuid){ return [{ json:{ chatId, paymentLink:'', error:'no doc_uuid', raw:$json } }]; }\nreturn [{ json:{ chatId, paymentLink:'https://www.ezcount.co.il/dp/?key='+uuid, docUuid:uuid } }];"
+      },
+      "id": "f9101e97-85f8-4f12-9876-4a8f3bd0bfd9",
+      "name": "Build Payment Link",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1920,
+        4832
+      ]
+    },
+    {
+      "parameters": {
+        "tableId": "orders",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "chat_id",
+              "fieldValue": "={{ $('Parse Order').item.json.chatId }}"
+            },
+            {
+              "fieldId": "doc_uuid",
+              "fieldValue": "={{ $('Build Payment Link').item.json.docUuid }}"
+            },
+            {
+              "fieldId": "payment_link",
+              "fieldValue": "={{ $('Build Payment Link').item.json.paymentLink }}"
+            },
+            {
+              "fieldId": "order_hash",
+              "fieldValue": "={{ $('Decide').item.json.newHash }}"
+            },
+            {
+              "fieldId": "order_snapshot",
+              "fieldValue": "={{ $('Decide').item.json.snapshot }}"
+            },
+            {
+              "fieldId": "total",
+              "fieldValue": "={{ $('Parse Order').item.json.total }}"
+            },
+            {
+              "fieldId": "status",
+              "fieldValue": "open"
+            },
+            {
+              "fieldId": "updated_at",
+              "fieldValue": "={{ $now.toISO() }}"
+            },
+            {
+              "fieldId": "invoice_name",
+              "fieldValue": "={{ $('Parse Order').item.json.o_invoice_clean || $('Parse Order').item.json.o_invoice_name }}"
+            }
+          ]
+        }
+      },
+      "id": "532c8539-8717-4e68-bfe1-bd2fed8ef028",
+      "name": "Insert Order Row",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -1696,
+        4832
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "rKqZ7xeWEdslSGJR",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "x1",
+              "name": "chatId",
+              "value": "={{ $('Build Payment Link').item.json.chatId }}",
+              "type": "string"
+            },
+            {
+              "id": "x2",
+              "name": "paymentLink",
+              "value": "={{ $('Build Payment Link').item.json.paymentLink }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "9ffaaefa-9e70-4318-80ea-9222ffa0fb65",
+      "name": "New Link",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1472,
+        4832
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "p1",
+              "name": "chatId",
+              "value": "={{ $json.chatId }}",
+              "type": "string"
+            },
+            {
+              "id": "p2",
+              "name": "paymentLink",
+              "value": "={{ $json.paymentLink }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "6288e575-8245-4183-b09a-718df70e11f6",
+      "name": "Payment Ready",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1248,
+        4768
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Skip foreign-language messages: reply only when Hebrew is present,\n// OR when there are no foreign letters at all (numbers / emoji / a short\n// continuation like a quantity). Media handoffs carry a Hebrew system\n// string, so they always pass.\nconst d = $json;\nconst t = (d.mergedText || '').toString();\nconst hasHebrew  = /[\\u0590-\\u05FF]/.test(t);\nconst hasForeign = /[A-Za-z\\u0600-\\u06FF\\u0400-\\u04FF]/.test(t);\nif (!hasHebrew && hasForeign) { return []; }\nreturn [{ json: d }];"
+      },
+      "id": "2f16b406-c54c-4f34-a381-cb63a474f66a",
+      "name": "Language Gate (Hebrew)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -4960,
+        4768
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const msg = $('Webhook (WHAPI In)').item.json.body.messages[0];\nconst chatId = msg.chat_id;\nconst text = (msg.text && msg.text.body ? msg.text.body : '').toString();\nconst norm = text.replace(/\\s+/g, ' ').trim();\n\n// Payment words (the owner declaring THIS chat is paid/closed).\nconst PAY = /(שולם|שילם|שולמה|סגור|סגורה|נסגר|נסגרה)/;\n\n// Reported-speech / quoting markers => the owner is quoting the CUSTOMER, not\n// declaring payment himself. Also a question mark => not a declaration.\nconst REPORTED = /(אמר|אמרה|כתב|כתבה|טוען|טוענת|לדבריו|לדבריה|לפי|מבקש|שואל|כאילו|\"|״|')/;\nconst isQuestion = /\\?/.test(norm);\n// \"the customer paid?\" style or long narration shouldn't lock the chat for a day.\nconst tooLong = norm.split(' ').length > 8;\n\nlet isPaid = false;\nif (PAY.test(norm) && !REPORTED.test(norm) && !isQuestion && !tooLong) {\n  isPaid = true;\n}\n\nlet until;\nif (isPaid) { until = DateTime.now().setZone('Asia/Jerusalem').plus({ days: 1 }).startOf('day').toISO(); }\nelse { until = DateTime.now().plus({ minutes: 30 }).toISO(); }\nreturn [{ json: { chatId, isPaid, silencedUntil: until, takeover_debug: { norm, reported: REPORTED.test(norm), isQuestion, tooLong } } }];\n"
+      },
+      "id": "7be3f7c4-b417-4ca2-9e71-fa814bfed13b",
+      "name": "Classify Takeover",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -9216,
+        4640
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://{{TPL:SUPABASE_REF}}.supabase.co/rest/v1/human_mode",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Prefer",
+              "value": "resolution=merge-duplicates,return=minimal"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { chat_id: $('Classify Takeover').item.json.chatId, active: true, updated_at: $now.toISO(), silenced_until: $('Classify Takeover').item.json.silencedUntil } }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -8992,
+        4640
+      ],
+      "id": "d5b02e33-8a73-4bec-b3be-65cf95afccd6",
+      "name": "Mark Human Mode",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "credentials": {
+        "supabaseApi": {
+          "id": "rKqZ7xeWEdslSGJR",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://{{TPL:SUPABASE_REF}}.supabase.co/rest/v1/human_mode",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Prefer",
+              "value": "resolution=merge-duplicates,return=minimal"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { chat_id: $('Parse Order').item.json.chatId, active: true, updated_at: $now.toISO(), silenced_until: DateTime.now().setZone('Asia/Jerusalem').plus({ days: 1 }).startOf('day').toISO() } }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -2592,
+        4576
+      ],
+      "id": "0aa5c94e-8467-4a56-bafc-10505ca6e2ed",
+      "name": "Mark Human (paid)",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "credentials": {
+        "supabaseApi": {
+          "id": "rKqZ7xeWEdslSGJR",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://gate.whapi.cloud/messages/text",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { to: \"120{{TPL:NOTIFY_GROUP_ID}}\", body: `שלום לסניף! הזמנה חדשה! 🎉\n` + `שם: ${$('Parse Order').item.json.o_name}\n` + `טלפון: ${$('Parse Order').item.json.o_phone}\n` + `שם לחשבונית: ${$('Parse Order').item.json.o_invoice_name}\n\n` + `מוצר: ${$('Parse Order').item.json.o_product}\n` + `כמות: ${$('Parse Order').item.json.o_quantity}\n` + `צבע: ${$('Parse Order').item.json.o_color}\n\n` + `מידות:\n${$json.sizesFormatted}\n\n` + `מיקום הדפסה: ${$('Parse Order').item.json.o_print_location}\n\n` + `אספקה: ${$('Parse Order').item.json.o_delivery}` + ($('Parse Order').item.json.o_delivery && $('Parse Order').item.json.o_delivery.indexOf('משלוח') > -1 ? ` — ${$('Parse Order').item.json.o_address}` : '') + `\n\n` + `🎨 הגרפיקה: לחפש במייל לפי שם/טלפון.\n\n` + `⚠️ נא לבדוק סטטוס תשלום על ההזמנה!` } }}",
+        "options": {}
+      },
+      "id": "cac0e543-582c-4d24-9aa4-4b3206390b20",
+      "name": "Send Order to Group",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -576,
+        4784
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "F47Okhzog5sMGU7d",
+          "name": "Header Auth account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## T-CENTER Sales Bot V2.6\n\n**תיקונים מהבדיקה החיה:**\n1. **תוקנה כפילות הודעות** על תמונה — הוסר ה-node שענה במקביל לסוכן.\n2. **זיהוי אסמכתא** — Vision מחזיר עכשיו JSON עם {סוג, שם מלא, סכום} וקורא שם+סכום מצילום העברה.\n3. **התאמה לפי שם מלא + סכום**:\n   • שם **וגם** סכום תואמים → מסומן paid אוטומטית.\n   • רק סכום תואם (לא השם) → התראה לצוות, **לא** מסמן paid לבד.\n   • לא נמצאה התאמה → התראה לצוות.\n4. עמודת `invoice_name` נוספה ל-orders (מולא backfill) ונכתבת בכל הזמנה חדשה.\n5. בפרומפט: בשלב 'על שם מי החשבונית?' הסוכן דורש **שם מלא** (עסק או פרטי+משפחה), זהה לשם על האסמכתא.\n\n**env נדרשים:** `GEMINI_API_KEY`, `WHAPI_TOKEN` (ל-Vision). שאר הקרדיטים מחוברים.\n**DB:** עמודות `graphics.kind` ו-`orders.invoice_name` כבר קיימות (הורצו migrations).",
+        "height": 620,
+        "width": 430,
+        "color": 5
+      },
+      "id": "f589e376-9469-46b7-82c9-76c55e940d53",
+      "name": "Sticky V2.6",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -4576,
+        3440
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize any size format the agent emits into one line per size.\n// Handles \"20 M, 5 L\" | \"6L 1XL\" | \"1 XXL, 1 XL\" | \"5M, 28L, 13XL\" | \"25 M\" | kids \"(18)\"\nconst raw = $('Parse Order').item.json.o_sizes;\nfunction formatSizes(rawV) {\n  if (!rawV) return '';\n  const s = String(rawV).trim();\n  if (s === '—' || s === '-' || /לתיאום|מול הצוות/.test(s)) return s;\n  const pairs = [];\n  const reNumFirst = /(\\d+)\\s*([A-Za-z]{1,4}|\\(\\d+\\))/g;\n  const reSizeFirst = /([A-Za-z]{1,4}|\\(\\d+\\))\\s*(\\d+)/g;\n  let m; const found = [];\n  while ((m = reNumFirst.exec(s)) !== null) found.push({ qty: parseInt(m[1],10), size: m[2].toUpperCase() });\n  if (found.length > 0) { for (const f of found) pairs.push(f); }\n  else { while ((m = reSizeFirst.exec(s)) !== null) pairs.push({ qty: parseInt(m[2],10), size: m[1].toUpperCase() }); }\n  if (pairs.length === 0) return s;\n  return pairs.map(p => p.size.replace(/[()]/g,'') + ' × ' + p.qty).join('\\n');\n}\nconst sizesFormatted = formatSizes(raw);\n// pass everything through + the new field\nreturn [{ json: { ...$('Parse Order').item.json, sizesFormatted } }];\n"
+      },
+      "id": "7201ebde-a6cf-46c7-9bd6-eb351974e476",
+      "name": "Format Sizes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -800,
+        4784
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const j = $('Extract Media').item.json;\nconst cap = (j.caption || '').toLowerCase();\nconst fn  = (j.filename || '').toLowerCase();\nconst text = cap + ' ' + fn;\n\n// Receipt / proof-of-payment signals (Hebrew + common English)\nconst RECEIPT = /(אסמכתא|אסמכתה|אישור תשלום|העברה|העברתי|שילמתי|תשלום|קבלה|חשבונית|שולם|bit|ביט|paybox|פייבוקס|transfer|receipt|invoice|paid|confirmation)/i;\n// Graphic / mockup signals\nconst GRAPHIC = /(גרפיקה|לוגו|עיצוב|מוקאפ|הדפסה|דגם|mockup|design|logo|אמנות|קובץ|תמונה|print|איור)/i;\n\nlet kind = '';            // 'receipt' | 'graphic' | ''\nif (RECEIPT.test(text)) kind = 'receipt';\nelse if (GRAPHIC.test(text)) kind = 'graphic';\n\n// Decide whether to ask Gemini Vision to read the file.\n// FIX: PDFs (documents) must also go through Vision — Gemini can OCR a PDF.\n// - image: always let Vision look (it confirms kind + reads payer name + amount).\n// - document (pdf): let Vision look UNLESS we already know it's a graphic by keyword.\nlet needsVision = false;\nif (j.type === 'image') {\n  needsVision = true;                 // any photo -> Vision reads it\n} else if (j.type === 'document') {\n  if (kind !== 'graphic') needsVision = true;  // pdf receipt / ambiguous pdf -> Vision (OCR)\n  else needsVision = false;                     // a pdf clearly tagged as artwork -> skip\n}\n\n// If we are NOT sending to Vision and still have no kind, treat a doc as artwork.\nif (!needsVision && !kind) {\n  kind = (j.type === 'image') ? '' : 'graphic';\n}\n\nreturn [{ json: { ...j, kind, needsVision, rcpt_name: '', rcpt_amount: 0 } }];\n"
+      },
+      "id": "6ef2b264-6dca-4f44-b416-bdd88f3d5877",
+      "name": "Classify Media",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -8992,
+        4240
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "nv",
+              "leftValue": "={{ $json.needsVision }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ac550d05-2618-4c8b-af79-5ac5c59eb921",
+      "name": "IF Needs Vision?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -8768,
+        4240
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Download WHAPI media, detect type, and pre-build the Gemini body.\n// FIX: now supports PDF (application/pdf) in addition to images — Gemini OCRs it.\nconst j = $('Classify Media').item.json;\nconst token = 'FDPRDy6fE6JVVUQPphKgaKECwSw6MagO'; // WHAPI channel token\n\nfunction sniffMime(b){\n  if (!b || b.length < 12) return '';\n  if (b[0]===0x25 && b[1]===0x50 && b[2]===0x44 && b[3]===0x46) return 'application/pdf'; // %PDF\n  if (b[0]===0xFF && b[1]===0xD8 && b[2]===0xFF) return 'image/jpeg';\n  if (b[0]===0x89 && b[1]===0x50 && b[2]===0x4E && b[3]===0x47) return 'image/png';\n  if (b[0]===0x47 && b[1]===0x49 && b[2]===0x46 && b[3]===0x38) return 'image/gif';\n  if (b[0]===0x52 && b[1]===0x49 && b[2]===0x46 && b[3]===0x46 &&\n      b[8]===0x57 && b[9]===0x45 && b[10]===0x42 && b[11]===0x50) return 'image/webp';\n  if (b[4]===0x66 && b[5]===0x74 && b[6]===0x79 && b[7]===0x70) return 'image/heic';\n  return '';\n}\nconst GEMINI_OK = ['image/jpeg','image/png','image/webp','image/heic','image/heif','application/pdf'];\n\nlet b64 = '', mime = '', ok = false, debug = '';\ntry {\n  // Prefer GET /media/{id} (returns the raw file reliably); fall back to link.\n  let url = j.mediaId ? ('https://gate.whapi.cloud/media/' + j.mediaId) : j.link;\n  let resp = await this.helpers.httpRequest({\n    method: 'GET', url, encoding: 'arraybuffer',\n    headers: token ? { Authorization: 'Bearer ' + token } : {},\n    returnFullResponse: true,\n  });\n  let buf = Buffer.isBuffer(resp.body) ? resp.body : Buffer.from(resp.body);\n\n  // If the media-id route gave nothing useful, try the link.\n  if ((!buf || buf.length < 100) && j.link) {\n    resp = await this.helpers.httpRequest({\n      method: 'GET', url: j.link, encoding: 'arraybuffer',\n      headers: token ? { Authorization: 'Bearer ' + token } : {},\n      returnFullResponse: true,\n    });\n    buf = Buffer.isBuffer(resp.body) ? resp.body : Buffer.from(resp.body);\n  }\n\n  const sniffed = sniffMime(buf);\n  const head = buf.slice(0, 16).toString('utf8'); // for debugging non-images\n  debug = 'len=' + (buf ? buf.length : 0) + ' sniff=' + (sniffed || 'none') + ' head=' + head.replace(/[^\\x20-\\x7e]/g,'.');\n\n  if (sniffed && GEMINI_OK.includes(sniffed)) {\n    mime = sniffed;\n    b64 = buf.toString('base64').replace(/^data:[^;]+;base64,/, '');\n    ok = b64.length > 0;\n  } else {\n    // Not a Gemini-supported file (maybe an HTML/JSON error page).\n    ok = false;\n    mime = sniffed || '';\n  }\n} catch (e) {\n  debug = 'fetch_error=' + (e.message || e);\n  ok = false;\n}\n\n// Prompt: classify, and for a receipt read the PAYER (customer), NOT the payee.\nconst promptText = 'אתה בודק תמונה או מסמך שלקוח שלח לעסק להדפסה על בגדים. קבע אם זו אסמכתא/הוכחת תשלום (העברה בנקאית, ביט, פייבוקס, צילום מסך של תשלום, קבלה) או גרפיקה/קובץ אמנות. אם זו אסמכתא תשלום - חלץ את שם המשלם (מי ששלח/העביר את הכסף), כלומר שם הלקוח. אל תיקח את שם המקבל של הכסף - המקבל הוא תמיד \"טי סנטר\" / \"T center\" / \"לטי סנטר טקסטיל\" / חשבון העסק, ואותו צריך להתעלם ולא להחזיר. אם רואים \"מאת/שולח/From\" קח את זה; אם רואים \"אל/לכבוד/זוכה/To\" - זה המקבל, התעלם. חלץ גם את סכום התשלום (מספר בלבד, בלי שקל). החזר אך ורק JSON תקין אחד, בלי טקסט נוסף ובלי markdown, בפורמט: {\"kind\":\"receipt\"|\"graphic\",\"full_name\":\"<שם המשלם/הלקוח או ריק>\",\"amount\":<מספר או 0>}. אם זו גרפיקה: {\"kind\":\"graphic\",\"full_name\":\"\",\"amount\":0}.';\n\nconst geminiBody = ok ? {\n  contents: [ { role: 'user', parts: [\n    { text: promptText },\n    { inlineData: { mimeType: mime, data: b64 } }\n  ] } ],\n  generationConfig: { temperature: 0, maxOutputTokens: 512, responseMimeType: 'application/json' }\n} : null;\n\nreturn [{ json: {\n  ...j,\n  vision_b64: b64,\n  vision_mime: mime || 'image/jpeg',\n  vision_ok: ok,\n  vision_debug: debug,\n  geminiBody\n} }];\n"
+      },
+      "id": "587760e9-d006-4552-95d7-12c7ea5e386b",
+      "name": "Vision: Fetch & B64",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -8544,
+        4160
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key={{TPL:GEMINI_API_KEY}}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.geminiBody }}",
+        "options": {}
+      },
+      "id": "615b6de0-dab8-473f-abb7-89c07ea2334c",
+      "name": "Vision: Gemini Classify",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -8096,
+        4096
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Works whether we came from Gemini (has candidates) or the skip branch (no image).\nconst f = $('Vision: Fetch & B64').item.json;\nlet kind = 'graphic', fullName = '', amount = 0, parseDebug = '';\n\nif (f.vision_ok) {\n  try {\n    const cands = $json.candidates || [];\n    let txt = (cands[0] && cands[0].content && cands[0].content.parts && cands[0].content.parts[0] && cands[0].content.parts[0].text || '').trim();\n    txt = txt.replace(/^```json\\s*/i,'').replace(/^```\\s*/i,'').replace(/```\\s*$/i,'').trim();\n    const m = txt.match(/\\{[\\s\\S]*\\}/);\n    if (m) {\n      const o = JSON.parse(m[0]);\n      if (o.kind === 'receipt') kind = 'receipt';\n      fullName = (o.full_name || '').toString().trim();\n      // amount may arrive as \"100\", \"100.00\", or with stray chars -> coerce hard.\n      amount = Number(String(o.amount == null ? 0 : o.amount).replace(/[^0-9.]/g,'')) || 0;\n    } else if (/receipt/i.test(txt)) {\n      kind = 'receipt';\n    }\n    parseDebug = 'raw=' + txt.slice(0,180);\n  } catch (e) { kind = 'graphic'; parseDebug = 'err=' + (e.message || e); }\n} else {\n  kind = 'graphic';\n  parseDebug = 'vision_ok=false';\n}\n\nreturn [{ json: { ...f, kind, rcpt_name: fullName, rcpt_amount: amount, needsVision: false, vision_parse_debug: parseDebug } }];\n"
+      },
+      "id": "19b93f20-bb7d-4275-8424-36f6af2616b7",
+      "name": "Vision: Parse Kind",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -7872,
+        4160
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ir",
+              "leftValue": "={{ $json.kind }}",
+              "rightValue": "receipt",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "4ac09775-1f5b-4390-a3f3-81f2c3f457c7",
+      "name": "IF Is Receipt?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -7648,
+        4240
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Receipt branch: reuse Vision's already-downloaded bytes, or fetch if absent.\nconst meta = $('IF Is Receipt?').item.json;\nconst token = 'FDPRDy6fE6JVVUQPphKgaKECwSw6MagO';\n\nlet b64  = meta.vision_b64 || '';\nlet mime = meta.vision_mime || meta.mime || 'image/jpeg';\n\n// Keyword path (no Vision) -> download now via media/{id}, fallback to link.\nif (!b64) {\n  try {\n    let url = meta.mediaId ? ('https://gate.whapi.cloud/media/' + meta.mediaId) : meta.link;\n    let resp = await this.helpers.httpRequest({\n      method: 'GET', url, encoding: 'arraybuffer',\n      headers: token ? { Authorization: 'Bearer ' + token } : {},\n      returnFullResponse: true,\n    });\n    let buf = Buffer.isBuffer(resp.body) ? resp.body : Buffer.from(resp.body);\n    if ((!buf || buf.length < 100) && meta.link) {\n      resp = await this.helpers.httpRequest({\n        method: 'GET', url: meta.link, encoding: 'arraybuffer',\n        headers: token ? { Authorization: 'Bearer ' + token } : {},\n        returnFullResponse: true,\n      });\n      buf = Buffer.isBuffer(resp.body) ? resp.body : Buffer.from(resp.body);\n    }\n    b64 = buf.toString('base64').replace(/^data:[^;]+;base64,/, '');\n  } catch (e) { b64 = ''; }\n}\n\nreturn [{ json: {\n  chat_id: meta.chatId,\n  phone: meta.phone,\n  file_b64: b64,\n  mime,\n  filename: meta.filename || ('receipt_' + Date.now() + '.jpg'),\n  caption: meta.caption || '',\n  senderName: meta.senderName || '',\n  rcpt_name: meta.rcpt_name || '',\n  rcpt_amount: Number(meta.rcpt_amount) || 0\n} }];"
+      },
+      "id": "cd45e9a7-5ad2-41ad-aa26-a9bb9738e78f",
+      "name": "Receipt: Download",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -7424,
+        4048
+      ]
+    },
+    {
+      "parameters": {
+        "tableId": "graphics",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "chat_id",
+              "fieldValue": "={{ $('Receipt: Download').item.json.chat_id }}"
+            },
+            {
+              "fieldId": "file_b64",
+              "fieldValue": "={{ $('Receipt: Download').item.json.file_b64 }}"
+            },
+            {
+              "fieldId": "mime",
+              "fieldValue": "={{ $('Receipt: Download').item.json.mime }}"
+            },
+            {
+              "fieldId": "filename",
+              "fieldValue": "={{ $('Receipt: Download').item.json.filename }}"
+            },
+            {
+              "fieldId": "caption",
+              "fieldValue": "={{ $('Receipt: Download').item.json.caption }}"
+            },
+            {
+              "fieldId": "kind",
+              "fieldValue": "receipt"
+            }
+          ]
+        }
+      },
+      "id": "d5390a59-95bb-4f51-bc01-d561f01b4d74",
+      "name": "Receipt: Store",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -7200,
+        4048
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "rKqZ7xeWEdslSGJR",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "orders",
+        "returnAll": true,
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "chat_id",
+              "condition": "eq",
+              "keyValue": "={{ $('Receipt: Download').item.json.chat_id }}"
+            }
+          ]
+        }
+      },
+      "id": "157063cf-1dff-46bc-a57c-ef169911b815",
+      "name": "Receipt: Find Open Order",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -6976,
+        4048
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "rKqZ7xeWEdslSGJR",
+          "name": "Supabase account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize Hebrew/Latin names for fuzzy compare (strip spaces, quotes, punctuation).\nfunction norm(s){\n  return (s||'').toString().toLowerCase()\n    .replace(/[׳״'\"`]/g,'')                 // hebrew geresh/gershayim + quotes\n    .replace(/\\b(בעמ|בע\"מ|בעם|ltd|inc)\\b/g,'')        // company suffixes\n    .replace(/[^֐-׿a-z0-9]/g,'')             // keep only hebrew+latin+digits\n    .trim();\n}\nconst meta = $('Receipt: Download').item.json;\nconst rcptName = norm(meta.rcpt_name);\nconst rcptAmount = Number(meta.rcpt_amount) || 0;\n\nconst rows = items.map(i => i.json).filter(r => r && r.chat_id);\nconst open = rows.filter(r => r.status === 'open');\nopen.sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());\n\n// amount tolerance: exact, or within 1 (rounding on the transfer)\nconst amtEq = (a,b) => Math.abs(Number(a||0) - Number(b||0)) <= 1;\nconst nameEq = (a) => {\n  const o = norm(a);\n  if (!rcptName || !o) return false;\n  return o === rcptName || o.includes(rcptName) || rcptName.includes(o);\n};\n\nlet target = null, matchType = 'none';\n// 1) best: name AND amount -> safe to auto-pay\ntarget = open.find(r => amtEq(r.total, rcptAmount) && nameEq(r.invoice_name));\nif (target) matchType = 'name_amount';\n// 2) amount matches but name doesn't -> human confirm\nif (!target) {\n  const byAmt = open.find(r => amtEq(r.total, rcptAmount));\n  if (byAmt) { target = byAmt; matchType = 'amount_only'; }\n}\n// 3) name matches but amount missing/zero (Vision couldn't read amount) -> human confirm\nif (!target && rcptAmount === 0) {\n  const byName = open.find(r => nameEq(r.invoice_name));\n  if (byName) { target = byName; matchType = 'name_only'; }\n}\n// 4) nothing matched but the customer has exactly ONE open order -> human confirm\nif (!target && open.length === 1) {\n  target = open[0]; matchType = 'single_open';\n}\n\n// autoPaid ONLY on a full name+amount match. Everything else with an order -> needsConfirm.\nconst autoPaid    = (matchType === 'name_amount');\nconst needsConfirm = (!!target && !autoPaid);   // order exists but not certain\nconst hasOpenOrder = !!target;\n\nreturn [{ json: {\n  chat_id: meta.chat_id,\n  phone: meta.phone,\n  senderName: meta.senderName || meta.rcpt_name || '',\n  rcpt_name: meta.rcpt_name || '',\n  rcpt_amount: rcptAmount,\n  hasOpenOrder,\n  autoPaid,\n  needsConfirm,\n  matchType,\n  orderId: target ? target.id : null,\n  total: target ? (target.total || '') : '',\n  invoice_name: target ? (target.invoice_name || '') : '',\n  payment_link: target ? (target.payment_link || '') : ''\n} }];\n"
+      },
+      "id": "4529e2f2-e4e6-4634-82a3-5886eff7daae",
+      "name": "Receipt: Pick Order",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -6752,
+        4048
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ap",
+              "leftValue": "={{ $json.autoPaid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "bcb250fc-6ebb-4222-8456-b8e7a75ccd30",
+      "name": "IF Has Open Order?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -6528,
+        4048
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "orders",
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $('Receipt: Pick Order').item.json.orderId }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "status",
+              "fieldValue": "paid"
+            },
+            {
+              "fieldId": "updated_at",
+              "fieldValue": "={{ $now.toISO() }}"
+            }
+          ]
+        }
+      },
+      "id": "9de8b5e6-5efb-4f67-908b-70658de07581",
+      "name": "Receipt: Mark Paid",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -6304,
+        3728
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "rKqZ7xeWEdslSGJR",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "delete",
+        "tableId": "human_mode",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "chat_id",
+              "condition": "eq",
+              "keyValue": "={{ $('Receipt: Pick Order').item.json.chat_id }}"
+            }
+          ]
+        }
+      },
+      "id": "a17a5d56-1b8f-4724-8e74-a46fad2c87a2",
+      "name": "Receipt: Clear Human",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -6080,
+        3728
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "rKqZ7xeWEdslSGJR",
+          "name": "Supabase account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "tableId": "human_mode",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "chat_id",
+              "fieldValue": "={{ $('Receipt: Pick Order').item.json.chat_id }}"
+            },
+            {
+              "fieldId": "active",
+              "fieldValue": "={{ true }}"
+            },
+            {
+              "fieldId": "updated_at",
+              "fieldValue": "={{ $now.toISO() }}"
+            },
+            {
+              "fieldId": "silenced_until",
+              "fieldValue": "={{ DateTime.now().setZone('Asia/Jerusalem').plus({ days: 1 }).startOf('day').toISO() }}"
+            }
+          ]
+        }
+      },
+      "id": "282c6e20-b217-49cb-9cbf-1dd02687f687",
+      "name": "Receipt: Silence Bot",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -5856,
+        3728
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "rKqZ7xeWEdslSGJR",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://gate.whapi.cloud/messages/text",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { to: $('Receipt: Pick Order').item.json.chat_id, body: \"קיבלנו את האסמכתא, תודה! 🙏 ההזמנה סומנה כשולמה ועוברת לטיפול הצוות. לכל שינוי נהיה איתך בקשר.\" } }}",
+        "options": {}
+      },
+      "id": "c6f56b48-a321-4994-8ac0-ff32abba0c07",
+      "name": "Receipt: Reply Customer",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -5632,
+        3536
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "F47Okhzog5sMGU7d",
+          "name": "Header Auth account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://gate.whapi.cloud/messages/text",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { to: \"120{{TPL:NOTIFY_GROUP_ID}}\", body: `💰 התקבלה אסמכתת תשלום ואומתה!\\n` + `שם: ${$('Receipt: Pick Order').item.json.invoice_name || $('Receipt: Pick Order').item.json.rcpt_name || '—'}\\n` + `טלפון: ${$('Receipt: Pick Order').item.json.phone}\\n` + `סכום: ${$('Receipt: Pick Order').item.json.total || $('Receipt: Pick Order').item.json.rcpt_amount} ₪\\n\\n` + `ההזמנה סומנה כשולמה (שם + סכום תואמים). האסמכתא נשלחה למייל.` } }}",
+        "options": {}
+      },
+      "id": "0a192d31-b7bd-4b51-825d-6414959842cb",
+      "name": "Receipt: Notify Group",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -5632,
+        3728
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "F47Okhzog5sMGU7d",
+          "name": "Header Auth account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const meta = $('Receipt: Download').item.json;\nconst pick = $('Receipt: Pick Order').item.json;\nconst binary = {};\nbinary['att0'] = { data: meta.file_b64, mimeType: meta.mime || 'image/jpeg', fileName: meta.filename || 'asmachta.jpg' };\nreturn [{ json: {\n  senderName: pick.senderName || meta.senderName || '',\n  phone: pick.phone,\n  total: pick.total || '',\n  attachKeys: 'att0'\n}, binary }];"
+      },
+      "id": "4541e7ad-fbe3-4055-897b-4e40b7f2a45f",
+      "name": "Receipt: Build Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -5632,
+        3920
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "shiftdigital.co.il@gmail.com",
+        "toEmail": "Tcenter1970@gmail.com",
+        "subject": "=אסמכתת תשלום — {{ $json.senderName || $json.phone }} ({{ $json.total }} ₪)",
+        "text": "={{ `התקבלה אסמכתת תשלום מהבוט 💰\\n\\nשם: ${$json.senderName || '—'}\\nטלפון: ${$json.phone}\\nסכום ההזמנה: ${$json.total || '—'} ₪\\n\\nההזמנה סומנה כשולמה אוטומטית. האסמכתא מצורפת למייל הזה.` }}",
+        "options": {
+          "attachments": "={{ $json.attachKeys }}"
+        }
+      },
+      "id": "29940143-90f2-4adf-b44c-2889ac2c91ae",
+      "name": "Receipt: Email Team",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [
+        -5408,
+        3920
+      ],
+      "webhookId": "e4edbe7c-fe6c-460a-b64f-f0ac3c971367",
+      "credentials": {
+        "smtp": {
+          "id": "8OOkMYkgA26G6FSI",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://gate.whapi.cloud/messages/text",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ (() => { const p = $('Receipt: Pick Order').item.json; const has = p.hasOpenOrder; const body = has ? ('💰 התקבלה אסמכתא — דרוש אישור ידני.\\n' + 'לקוח: ' + (p.rcpt_name || '-') + '\\n' + 'סכום באסמכתא: ' + (p.rcpt_amount || '-') + ' ₪\\n' + 'טלפון: ' + p.phone + '\\n\\n' + 'הזמנה תואמת: ' + p.invoice_name + ' / ' + p.total + ' ₪ (#' + p.orderId + ')\\n' + 'סוג התאמה: ' + p.matchType + '\\n\\n' + 'בדקו את האסמכתא — אם תקין, סמנו ידנית כשולם.') : ('⚠️ התקבלה אסמכתא שאינה תואמת אף הזמנה פתוחה.\\n' + 'לקוח: ' + (p.rcpt_name || '-') + '\\n' + 'סכום באסמכתא: ' + (p.rcpt_amount || '-') + ' ₪\\n' + 'טלפון: ' + p.phone + '\\n\\n' + 'לא נמצאה הזמנה פתוחה תואמת. בדקו ידנית.'); return { to: '120{{TPL:NOTIFY_GROUP_ID}}', body }; })() }}",
+        "options": {}
+      },
+      "id": "8e764aa4-ec3a-407b-8ce4-bd89c3fbfca4",
+      "name": "Receipt: No-Match Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -6304,
+        4112
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "F47Okhzog5sMGU7d",
+          "name": "Header Auth account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://gate.whapi.cloud/messages/text",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ (() => { const p = $('Receipt: Pick Order').item.json; const has = p.hasOpenOrder; const body = has ? 'קיבלנו את האסמכתא, תודה רבה! 🙏 אנחנו בודקים ומעדכנים אותך עם אישור התשלום בקרוב.' : 'קיבלנו את הקובץ, תודה! לא הצלחנו לאתר הזמנה פתוחה על שמך — נציג יחזור אליך לבדוק.'; return { to: p.chat_id, body }; })() }}",
+        "options": {}
+      },
+      "id": "2359c5e6-3c32-430a-81a0-549d70f3cf6a",
+      "name": "Receipt: Reply (no order)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -6304,
+        4304
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "F47Okhzog5sMGU7d",
+          "name": "Header Auth account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const msgs = ($json.body && $json.body.messages) || [];\nconst m = msgs[0] || {};\nif (m.from_me === true) return [];\nif (m.type !== 'text') return [];\nconst txt = (m.text && m.text.body ? m.text.body : '').toString().trim();\nif (!txt) return [];\n\nconst chatId = m.chat_id;\nconst urls = txt.match(/https?:\\/\\/\\S+/gi) || [];\n// \"link-only\" = contains a URL and very little else (<= 8 non-url words)\nconst stripped = txt.replace(/https?:\\/\\/\\S+/gi, '').trim();\nconst wordCount = stripped ? stripped.split(/\\s+/).length : 0;\nconst isLinkOnly = urls.length > 0 && wordCount <= 8;\n\n// Payment-context words make it a payment link even with more text.\nconst PAYWORD = /(תשלום|העברה|שילמתי|שולם|ביט|bit|paybox|פייבוקס|אסמכת|קבלה|חשבונית|paid|payment|transfer)/i;\nconst looksPayment = urls.length > 0 && (isLinkOnly || PAYWORD.test(stripped));\n\nif (!looksPayment) return [];\nreturn [{ json: { chatId, isLink: true } }];"
+      },
+      "id": "a63bf7c1-2fd1-40e0-9fc1-1f72ef0cbd85",
+      "name": "Detect Link-Only",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -9440,
+        4048
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://gate.whapi.cloud/messages/text",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { to: $('Detect Link-Only').item.json.chatId, body: \"תוכל לשלוח את האסמכתא? (צילום מסך של אישור התשלום) — כך נוכל לאמת ולסמן את ההזמנה כשולמה.\" } }}",
+        "options": {}
+      },
+      "id": "9be51c4f-dd3b-4b57-81fa-f6dc565bae28",
+      "name": "Ask For Asmachta",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -9216,
+        4048
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "F47Okhzog5sMGU7d",
+          "name": "Header Auth account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "vok",
+              "leftValue": "={{ $json.vision_ok }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "7498730f-a6af-4796-89d8-c303990f1fee",
+      "name": "IF Vision OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -8320,
+        4160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// === Approval gate: release the payment link ONLY on a real confirmation ===\n// Two ways to confirm:\n//   (1) the customer's message is essentially a standalone yes (short, or the\n//       approval word IS the message) — not a \"כן\" buried in an answer about\n//       delivery/size/color;\n//   (2) the customer REPLIED (quoted) the bot's summary message with a yes.\nconst src = $('Parse Order').first().json;\nconst incoming = ($('Bot Allowed?').item.json.mergedText || '').toString().replace(/\\[המערכת:[^\\]]*\\]/g, '').trim();\n\n// quoted content of a WhatsApp reply, if any (threaded from the webhook)\nlet quoted = '';\ntry {\n  const m = $('Webhook (WHAPI In)').item.json.body.messages[0];\n  quoted = (m && m.context && (m.context.quoted_content || m.context.quoted_id)) ? String(m.context.quoted_content || '') : '';\n} catch (e) { quoted = ''; }\n\nconst norm = (s) => s.toLowerCase()\n  .replace(/[\\u0591-\\u05c7]/g, '')       // strip nikud\n  .replace(/[!?.,\\u05f3\\u05f4\"'`\\-]/g, ' ')\n  .replace(/\\s+/g, ' ')\n  .trim();\nconst t = norm(incoming);\nconst words = t ? t.split(' ') : [];\n\nconst APPROVE = /(^|\\s)(כן|מאשר|מאשרת|אשר|אישרתי|לאשר|סגור|סוגרים|נסגור|סבבה|מעולה סגרנו|יאללה סגור|אפשר לשלם|שלח לי לינק|שלח לינק|תשלח לינק|תשלח את הלינק)(\\s|$)/;\nconst REFUSE  = /(^|\\s)(לא|רגע|חכה|תקן|שנה|בהמשך|אולי|עדיין|לא בטוח)(\\s|$)/;\n\nconst hasApprove = APPROVE.test(t);\nconst hasRefuse  = REFUSE.test(t);\n\n// (1) standalone-ish: <= 4 words total, or the only \"real\" word is the yes.\n// answering a sub-question (delivery/pickup/size/color/address) is NOT an order confirm\nconst SUBQ = /(משלוח|איסוף|מידה|מידות|צבע|כתובת|קדמי|אחורי|גדול|קטן|רחוב|עיר|דחוף|מתי|כמה)/;\nconst standalone = hasApprove && words.length <= 4 && !SUBQ.test(t);\n\n// (2) reply that quotes our summary text (we put a price/סיכום in it).\nconst repliedToSummary = !!quoted && /(סיכום|לאשר|סה\"?כ|מחיר|לתשלום|הזמנה)/.test(norm(quoted)) && hasApprove;\n\nconst isApproval = (standalone || repliedToSummary) && !hasRefuse;\nconst allowLink = src.isOrder === true ? isApproval : false;\n\nreturn [{ json: { ...src, isOrder: allowLink,\n  gate_debug: { hasApprove, hasRefuse, words: words.length, standalone, repliedToSummary, quoted: quoted.slice(0,60) } } }];\n"
+      },
+      "id": "d15cfe61-04c4-4403-bf6f-b93c0168f3ec",
+      "name": "Approval Gate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3936,
+        4768
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## V2.8 — תיקונים\n\n**1. Mark Human Mode / Mark Human (paid)** הומרו ל-UPSERT (HTTP → PostgREST, Prefer: resolution=merge-duplicates) במקום INSERT. זה מתקן את שגיאת \"duplicate key human_mode_pkey\" ומבטיח ש-updated_at מתרענן בכל הודעה של בעל העסק (חלון ההשתקה לא נופל באמצע).\n\n⚠️ לבדוק בהרצה ראשונה: שה-URL היחסי /rest/v1/human_mode נפתר מול כתובת הפרויקט מה-credential. אם מקבלים 404 — להחליף ל-URL מלא: https://<project>.supabase.co/rest/v1/human_mode\n\n**2. Parse Order** מסנן כל לינק שהסוכן עלול לפלוט (הלינק האמיתי של EZcount נשלח בנפרד).\n\n**3. פרומפט הסוכן** — חוקי קריאת הודעה מלאה + פילוח מידות (לא לתפוס רק את הפרט הראשון).",
+        "height": 360,
+        "width": 420,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -8928,
+        4032
+      ],
+      "id": "0225a15f-d7fb-48c0-9eb5-39c8820fc831",
+      "name": "Sticky V2.8 Fixes"
+    },
+    {
+      "parameters": {
+        "jsCode": "const b = $json.body || {};\nconst m = (b.messages && b.messages[0]) || {};\nreturn [{ json: {\n  chat_id: m.chat_id || '',\n  from_me: m.from_me === true,\n  msg_type: m.type || '',\n  source: m.source || '',\n  from_name: m.from_name || '',\n  msg_count: (b.messages || []).length,\n  payload: b              // OBJECT -> stored as real jsonb\n} }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -9440,
+        4928
+      ],
+      "id": "73296dad-2bd1-4998-82f0-82f448eb591c",
+      "name": "Inbox: Prepare Row"
+    },
+    {
+      "parameters": {
+        "tableId": "audit_log",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "chat_id",
+              "fieldValue": "={{ $json.chat_id }}"
+            },
+            {
+              "fieldId": "from_me",
+              "fieldValue": "={{ $json.from_me }}"
+            },
+            {
+              "fieldId": "msg_type",
+              "fieldValue": "={{ $json.msg_type }}"
+            },
+            {
+              "fieldId": "source",
+              "fieldValue": "={{ $json.source }}"
+            },
+            {
+              "fieldId": "from_name",
+              "fieldValue": "={{ $json.from_name }}"
+            },
+            {
+              "fieldId": "msg_count",
+              "fieldValue": "={{ $json.msg_count }}"
+            },
+            {
+              "fieldId": "payload",
+              "fieldValue": "={{ $json.payload }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -9216,
+        4928
+      ],
+      "id": "9182ddb2-f346-448d-bf26-198c0ff88bf6",
+      "name": "Inbox: Log Webhook",
+      "credentials": {
+        "supabaseApi": {
+          "id": "rKqZ7xeWEdslSGJR",
+          "name": "Supabase account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 4
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -9664,
+        5424
+      ],
+      "id": "d586b4d3-e86c-4f2a-853e-806ce308a577",
+      "name": "Daily 04:00"
+    },
+    {
+      "parameters": {
+        "operation": "delete",
+        "tableId": "audit_log",
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "created_at",
+              "condition": "lt",
+              "keyValue": "={{ $now.minus({ days: 3 }).toISO() }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -9440,
+        5424
+      ],
+      "id": "b80d6a09-c4b0-49a2-99ad-6f3001108392",
+      "name": "Inbox: Prune >3d",
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "rKqZ7xeWEdslSGJR",
+          "name": "Supabase account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "content": "## V2.9 — תיקונים\n\n**1. media_buffer נפרד** — תמונות וטקסט כבר לא חולקים buffer.\n✅ הטבלה כבר נוצרה ב-Supabase (media_buffer).\n\n**4. קופסה שחורה (audit_log)** — כל webhook נכתב ל-audit_log, ונמחק אוטומטית אחרי 3 ימים (Schedule יומי 04:00). השם audit_log ולא inbox כי inbox הוא תור העיבוד הקיים (18k שורות) — לא נוגעים בו.\n✅ הטבלה כבר נוצרה ב-Supabase (audit_log).\n\n**7. Approval Gate** — לינק יוצא רק על \"כן\" עצמאי קצר, או reply שמצטט את הסיכום. \"כן רוצה משלוח\" / \"כן גדול\" כבר לא משחררים לינק (תשובה לשאלת המשך).\n\n**8. Classify Takeover** — בעל העסק שמצטט לקוח (\"הוא אמר ששילם\") או שואל שאלה כבר לא משתיק ליום. רק הצהרה קצרה וישירה (\"שולם\"/\"סגור תודה\").\n\nהטבלאות מוכנות ב-Supabase.\n\n⚠️ תיקון URL: שני נודי ה-UPSERT (Mark Human Mode / Mark Human paid) חייבים URL מלא:\nhttps://{{TPL:SUPABASE_REF}}.supabase.co/rest/v1/human_mode\n(URL יחסי /rest/v1/... לא עובד ב-HTTP node).\n\n**V2.9.1:** נוספו פרטי בנק אמיתיים (דיסקונט 041 / 068539 / טי סנטר טקסטיל בע\"מ) + כלל קשיח: אסור להמציא מספרי בנק/תשלום, בספק → מפנה לטלפון.",
+        "height": 460,
+        "width": 460,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -10080,
+        5712
+      ],
+      "id": "0dc365e9-e97c-4c41-bf06-6a009283fbe2",
+      "name": "Sticky V2.9"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ql-c1",
+              "leftValue": "={{ $json.body.messages[0].chat_id }}",
+              "rightValue": "120{{TPL:NOTIFY_GROUP_ID}}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "ql-c2",
+              "leftValue": "={{ $json.body.messages[0].from_me }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "ql-c3",
+              "leftValue": "={{ $json.body.messages[0].source }}",
+              "rightValue": "api",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            },
+            {
+              "id": "ql-c4",
+              "leftValue": "={{ ($json.body.messages[0].text && $json.body.messages[0].text.body) || '' }}",
+              "rightValue": "(תעשה|תשלח|שלח).{0,10}לינק",
+              "operator": {
+                "type": "string",
+                "operation": "regex"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ql-filter-aaaa",
+      "name": "QL: Filter (group + owner + cmd)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -9440,
+        5120
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Quick-link: owner types \"שלח לינק <סכום>\" in the orders group. Mints a GENERIC\n// unassigned payment link on T-CENTER's own name and posts it back to the group.\nconst msg = $json.body.messages[0];\nconst body = String(msg.text && msg.text.body || '');\n// amount = first number anywhere after the word 'לינק' (handles 'ל500', '500 שקל', '5000ש', 'ל-500', '1,200')\nconst parts = body.split('לינק');\nconst after = parts.length > 1 ? parts.slice(1).join('לינק') : body;\nconst numMatch = after.match(/(\\d[\\d.,]*)/);\nif (!numMatch) { return [{ json: { __qlFail: true, reason: 'לא צוין סכום' } }]; }\nconst amount = Number(String(numMatch[1]).replace(/,/g,''));\nif (!amount || amount <= 0 || amount > 1000000) { return [{ json: { __qlFail: true, reason: 'סכום לא תקין: ' + numMatch[1] } }]; }\n// Israel local time for the description (DST-safe)\nconst p = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Jerusalem', hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', hour12: false }).formatToParts(new Date()).map(x => [x.type, x.value]));\nconst hh = p.hour === '24' ? '00' : p.hour;\nconst desc = 'הוצאת לינק ידני בשעה ' + hh + ':' + p.minute + ' (' + p.day + '/' + p.month + ') — לינק גנרי ללא שיוך';\nreturn [{ json: {\n  __ql: true,\n  total: amount,\n  desc: desc,\n  o_invoice_name: 'טי סנטר',\n  businessPhone: '0507506702',\n  groupChatId: '120{{TPL:NOTIFY_GROUP_ID}}'\n} }];"
+      },
+      "id": "ql-parse-bbbb",
+      "name": "QL: Parse cmd + target",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -9216,
+        5120
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "qlf-1",
+              "leftValue": "={{ $json.__qlFail }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ql-failif-iiii",
+      "name": "QL: Fail?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -8992,
+        5120
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://gate.whapi.cloud/messages/text",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { to: \"120{{TPL:NOTIFY_GROUP_ID}}\", body: \"⚠️ לא הצלחתי להוציא לינק: \" + ($json.reason || \"שגיאה\") + \"\\n\\nשימוש: כתוב כאן \\\"שלח לינק <סכום>\\\" — למשל: שלח לינק 500\" } }}",
+        "options": {}
+      },
+      "id": "ql-fail-cccc",
+      "name": "QL: Notify group on failure",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -8768,
+        5008
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "F47Okhzog5sMGU7d",
+          "name": "Header Auth account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.ezcount.co.il/api/createDoc",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {\n  api_key: \"{{TPL:EZCOUNT_API_KEY}}\",\n  developer_email: \"{{TPL:DEVELOPER_EMAIL}}\",\n  type: 300,\n  customer_name: $json.o_invoice_name,\n  customer_phone: $json.businessPhone,\n  item: [ { details: $json.desc, amount: 1, price: $json.total, vat_type: \"INC\" } ],\n  dont_send_email: 1\n} }}",
+        "options": {}
+      },
+      "id": "ql-ezcount-dddd",
+      "name": "QL: Create EZcount Invoice",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -8768,
+        5200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ez = $json;\nconst parsed = $('QL: Parse cmd + target').item.json;\nconst uuid = ez.doc_uuid;\nconst link = uuid ? ('https://www.ezcount.co.il/dp/?key=' + uuid) : '⚠️ שגיאה ביצירת הלינק מול EZcount — נסה שוב';\nreturn [{ json: {\n  total: parsed.total,\n  desc: parsed.desc,\n  o_invoice_name: parsed.o_invoice_name,\n  doc_uuid: uuid || '',\n  paymentLink: link,\n  groupChatId: parsed.groupChatId\n} }];"
+      },
+      "id": "ql-build-eeee",
+      "name": "QL: Build Payment Link",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -8544,
+        5200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://gate.whapi.cloud/messages/text",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {\n  to: \"120{{TPL:NOTIFY_GROUP_ID}}\",\n  body: \"🔗 לינק תשלום ידני על סך \" + $('QL: Build Payment Link').item.json.total + \" ₪ (על שם טי סנטר)\\n\" + $('QL: Build Payment Link').item.json.paymentLink + \"\\n\\n\" + $('QL: Build Payment Link').item.json.desc\n} }}",
+        "options": {}
+      },
+      "id": "ql-send-gggg",
+      "name": "QL: Post Link to Group",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -8096,
+        5200
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "F47Okhzog5sMGU7d",
+          "name": "Header Auth account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const p = $('Parse Order').item.json;\nif (!p.escalate) return [];\nconst phone = String(p.o_phone || (p.chatId||'').split('@')[0] || '').replace(/\\D/g,'');\nif (!phone) return [];\n// dedup: one alert per chat per 6h (in-memory, fail-open)\nconst sd = $getWorkflowStaticData('global');\nsd.esc = sd.esc || {};\nconst now = Date.now();\nif (now - (sd.esc[phone] || 0) < 6*3600*1000) return [];\nsd.esc[phone] = now;\nconst name = (p.o_name && p.o_name !== '\\u2014') ? p.o_name : (p.senderName || 'לקוח');\nreturn [{ json: {\n  phone,\n  name,\n  reason: p.escalateReason || 'דרוש נציג',\n  plus: '+' + phone,\n  waLink: 'https://wa.me/' + phone,\n  chatId: p.chatId\n} }];"
+      },
+      "id": "7616c740-b279-484e-a19d-b1cf983f3149",
+      "name": "Esc: Gate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -4144,
+        4988
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://gate.whapi.cloud/messages/text",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { to: \"120{{TPL:NOTIFY_GROUP_ID}}\", body: \"🔔 לקוח מבקש מענה אישי / נציג\\n\\nסוג הפנייה: \" + $json.reason + \"\\nשם: \" + $json.name + \"\\nטלפון: \" + $json.plus + \"\\nפתיחת צ'אט עם הלקוח: \" + $json.waLink } }}",
+        "options": {}
+      },
+      "id": "6b463507-c384-4f02-8de2-22ba2c0e7202",
+      "name": "Esc: Notify Group",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -3904,
+        4928
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "F47Okhzog5sMGU7d",
+          "name": "Header Auth account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fromEmail": "shiftdigital.co.il@gmail.com",
+        "toEmail": "Tcenter1970@gmail.com",
+        "subject": "=דרוש נציג — {{ $json.reason }}",
+        "emailFormat": "text",
+        "text": "={{ \"לקוח מבקש מענה אישי / נציג 🔔\\n\\nסוג הפנייה: \" + $json.reason + \"\\nשם: \" + $json.name + \"\\nטלפון: \" + $json.plus + \"\\nפתיחת צ'אט בוואטסאפ: \" + $json.waLink + \"\\n\\nנשלח אוטומטית ממערכת הבוט.\" }}",
+        "options": {}
+      },
+      "id": "f1951760-9544-4df6-b97a-69e776f40da6",
+      "name": "Esc: Email Team",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        -3664,
+        4928
+      ],
+      "webhookId": "c5f8dbfb-abda-474d-809c-86712477333c",
+      "credentials": {
+        "smtp": {
+          "id": "8OOkMYkgA26G6FSI",
+          "name": "SMTP account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "IF Incoming Message": {
+      "main": [
+        [
+          {
+            "node": "Extract Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buffer: Insert Message": {
+      "main": [
+        [
+          {
+            "node": "Wait 6s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 6s": {
+      "main": [
+        [
+          {
+            "node": "Buffer: Get All",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buffer: Get All": {
+      "main": [
+        [
+          {
+            "node": "Debounce: Am I Last?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Debounce: Am I Last?": {
+      "main": [
+        [
+          {
+            "node": "Buffer: Clear",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buffer: Clear": {
+      "main": [
+        [
+          {
+            "node": "Check Human Mode",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Human Mode": {
+      "main": [
+        [
+          {
+            "node": "Bot Allowed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bot Allowed?": {
+      "main": [
+        [
+          {
+            "node": "Language Gate (Hebrew)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "T-CENTER Sales Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "T-CENTER Sales Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "T-CENTER Sales Agent": {
+      "main": [
+        [
+          {
+            "node": "Parse Order",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Order": {
+      "main": [
+        [
+          {
+            "node": "Send Summary / Reply",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Esc: Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Summary / Reply": {
+      "main": [
+        [
+          {
+            "node": "Approval Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Order Closed": {
+      "main": [
+        [
+          {
+            "node": "Lookup Orders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Payment Link": {
+      "main": [
+        [
+          {
+            "node": "Graphics: Get All (for email)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Format Sizes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Graphics: Get All (for email)": {
+      "main": [
+        [
+          {
+            "node": "Build Attachments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Attachments": {
+      "main": [
+        [
+          {
+            "node": "Email Order to T-Center",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Agent Replied": {
+      "main": [
+        [
+          {
+            "node": "Classify Takeover",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Is Media (image/document)": {
+      "main": [
+        [
+          {
+            "node": "Extract Media",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Media": {
+      "main": [
+        [
+          {
+            "node": "Classify Media",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Media (binary)": {
+      "main": [
+        [
+          {
+            "node": "To Base64",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "To Base64": {
+      "main": [
+        [
+          {
+            "node": "Graphics: Insert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Graphics: Insert": {
+      "main": [
+        [
+          {
+            "node": "Media → Buffer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Media → Buffer": {
+      "main": [
+        [
+          {
+            "node": "Media Handoff",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Media Handoff": {
+      "main": [
+        [
+          {
+            "node": "Media Wait 6s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Media Wait 6s": {
+      "main": [
+        [
+          {
+            "node": "Media: Get Buffer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Media: Get Buffer": {
+      "main": [
+        [
+          {
+            "node": "Media: Am I Last?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Media: Am I Last?": {
+      "main": [
+        [
+          {
+            "node": "Media: Clear Buffer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Media: Clear Buffer": {
+      "main": [
+        [
+          {
+            "node": "Check Human Mode",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Fields": {
+      "main": [
+        [
+          {
+            "node": "Buffer: Insert Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook (WHAPI In)": {
+      "main": [
+        [
+          {
+            "node": "IF Is Media (image/document)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "IF Agent Replied",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "IF Incoming Message",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Detect Link-Only",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Inbox: Prepare Row",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "QL: Filter (group + owner + cmd)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup Orders": {
+      "main": [
+        [
+          {
+            "node": "Decide",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decide": {
+      "main": [
+        [
+          {
+            "node": "IF Reuse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Reuse": {
+      "main": [
+        [
+          {
+            "node": "Reuse Link",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF Route Human",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reuse Link": {
+      "main": [
+        [
+          {
+            "node": "Payment Ready",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Route Human": {
+      "main": [
+        [
+          {
+            "node": "Mark Human (paid)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF Replace",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Human (paid)": {
+      "main": [
+        [
+          {
+            "node": "Send Paid Notice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Replace": {
+      "main": [
+        [
+          {
+            "node": "Supersede Old",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create EZcount Invoice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supersede Old": {
+      "main": [
+        [
+          {
+            "node": "Create EZcount Invoice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create EZcount Invoice": {
+      "main": [
+        [
+          {
+            "node": "Build Payment Link",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Payment Link": {
+      "main": [
+        [
+          {
+            "node": "Insert Order Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Order Row": {
+      "main": [
+        [
+          {
+            "node": "New Link",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "New Link": {
+      "main": [
+        [
+          {
+            "node": "Payment Ready",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Payment Ready": {
+      "main": [
+        [
+          {
+            "node": "Send Payment Link",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Language Gate (Hebrew)": {
+      "main": [
+        [
+          {
+            "node": "T-CENTER Sales Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify Takeover": {
+      "main": [
+        [
+          {
+            "node": "Mark Human Mode",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Sizes": {
+      "main": [
+        [
+          {
+            "node": "Send Order to Group",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Detect Link-Only": {
+      "main": [
+        [
+          {
+            "node": "Ask For Asmachta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify Media": {
+      "main": [
+        [
+          {
+            "node": "IF Needs Vision?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Needs Vision?": {
+      "main": [
+        [
+          {
+            "node": "Vision: Fetch & B64",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF Is Receipt?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vision: Fetch & B64": {
+      "main": [
+        [
+          {
+            "node": "IF Vision OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vision: Gemini Classify": {
+      "main": [
+        [
+          {
+            "node": "Vision: Parse Kind",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vision: Parse Kind": {
+      "main": [
+        [
+          {
+            "node": "IF Is Receipt?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Is Receipt?": {
+      "main": [
+        [
+          {
+            "node": "Receipt: Download",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Download Media (binary)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Receipt: Download": {
+      "main": [
+        [
+          {
+            "node": "Receipt: Store",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Receipt: Store": {
+      "main": [
+        [
+          {
+            "node": "Receipt: Find Open Order",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Receipt: Find Open Order": {
+      "main": [
+        [
+          {
+            "node": "Receipt: Pick Order",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Receipt: Pick Order": {
+      "main": [
+        [
+          {
+            "node": "IF Has Open Order?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Has Open Order?": {
+      "main": [
+        [
+          {
+            "node": "Receipt: Mark Paid",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Receipt: No-Match Alert",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Receipt: Reply (no order)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Receipt: Build Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Receipt: Mark Paid": {
+      "main": [
+        [
+          {
+            "node": "Receipt: Clear Human",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Receipt: Clear Human": {
+      "main": [
+        [
+          {
+            "node": "Receipt: Silence Bot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Receipt: Silence Bot": {
+      "main": [
+        [
+          {
+            "node": "Receipt: Reply Customer",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Receipt: Notify Group",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Receipt: Build Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Receipt: Build Email": {
+      "main": [
+        [
+          {
+            "node": "Receipt: Email Team",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Vision OK?": {
+      "main": [
+        [
+          {
+            "node": "Vision: Gemini Classify",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Vision: Parse Kind",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approval Gate": {
+      "main": [
+        [
+          {
+            "node": "IF Order Closed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Inbox: Prepare Row": {
+      "main": [
+        [
+          {
+            "node": "Inbox: Log Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daily 04:00": {
+      "main": [
+        [
+          {
+            "node": "Inbox: Prune >3d",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "QL: Filter (group + owner + cmd)": {
+      "main": [
+        [
+          {
+            "node": "QL: Parse cmd + target",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "QL: Parse cmd + target": {
+      "main": [
+        [
+          {
+            "node": "QL: Fail?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "QL: Fail?": {
+      "main": [
+        [
+          {
+            "node": "QL: Notify group on failure",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "QL: Create EZcount Invoice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "QL: Create EZcount Invoice": {
+      "main": [
+        [
+          {
+            "node": "QL: Build Payment Link",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "QL: Build Payment Link": {
+      "main": [
+        [
+          {
+            "node": "QL: Post Link to Group",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Esc: Gate": {
+      "main": [
+        [
+          {
+            "node": "Esc: Notify Group",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Esc: Notify Group": {
+      "main": [
+        [
+          {
+            "node": "Esc: Email Team",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}

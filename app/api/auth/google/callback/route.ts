@@ -5,7 +5,8 @@ import {
   originFromRequest,
   redirectUriFor,
 } from "@/lib/google-oauth";
-import { createSessionToken, SESSION_COOKIE, SESSION_TTL_SEC } from "@/lib/auth";
+import { createSessionTokenV2, SESSION_COOKIE, SESSION_TTL_SEC } from "@/lib/auth";
+import { getUserByEmail, upsertUser } from "@/lib/control-plane";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,11 +24,24 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const { email } = await exchangeCodeForEmail(code, redirectUriFor(origin));
+    const { email, verified } = await exchangeCodeForEmail(code, redirectUriFor(origin));
+    if (!verified) {
+      return NextResponse.redirect(loginUrl("unverified")); // don't trust an unverified Google email
+    }
     if (!isAllowed(email)) {
       return NextResponse.redirect(loginUrl("unauthorized"));
     }
-    const token = await createSessionToken();
+    // Resolve role from the control-plane; seed an allowlisted user as owner on
+    // first login. Fail-open: if the control-plane is down, allowlisted => owner.
+    let role: "owner" | "operator" | "viewer" = "owner";
+    try {
+      const existing = await getUserByEmail(email);
+      role = existing?.role ?? "owner";
+      await upsertUser(email, role);
+    } catch {
+      /* control-plane unreachable — allowlisted user keeps owner */
+    }
+    const token = await createSessionTokenV2({ email, role });
     const res = NextResponse.redirect(origin + "/");
     res.cookies.set(SESSION_COOKIE, token, {
       httpOnly: true,

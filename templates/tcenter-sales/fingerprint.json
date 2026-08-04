@@ -1,0 +1,14 @@
+{
+  "nodeCount": 92,
+  "edgeCount": 93,
+  "nodeNamesSha256": "2eeb11104f6610b8780925238c48b745147bcbf2e0b166e8d658a5e5b7749d22",
+  "nodeTypesSha256": "9fda6b16e1dbb390689d52a9800f21e538e2a74415e75fbacf78de72c573247b",
+  "systemPromptLength": 21025,
+  "systemPromptSha256": "a0d3d400913b28eb89ccd55dc2d9467b850d5d217e6fa8deed521cc003d6beb8",
+  "credentials": [
+    "supabaseApi",
+    "googlePalmApi",
+    "httpHeaderAuth",
+    "smtp"
+  ]
+}

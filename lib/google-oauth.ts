@@ -9,9 +9,12 @@ const TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
 /** Derive the app's public origin from the incoming request (or AUTH_BASE_URL). */
 export function originFromRequest(req: Request): string {
   const base = process.env.AUTH_BASE_URL;
-  if (base) return base.replace(/\/+$/, "");
-  const proto = req.headers.get("x-forwarded-proto") || "https";
+  if (base) return base.replace(/\/+$/, ""); // prefer the explicit, trusted origin
+  const proto = req.headers.get("x-forwarded-proto") === "http" ? "http" : "https";
   const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || "localhost:3000";
+  // Guard against a spoofed host injecting a path/redirect (open-redirect on the
+  // error path). Set AUTH_BASE_URL in production to avoid trusting the header at all.
+  if (!/^[a-zA-Z0-9.-]+(:\d+)?$/.test(host)) throw new Error("invalid request host");
   return `${proto}://${host}`;
 }
 

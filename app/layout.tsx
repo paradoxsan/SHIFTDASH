@@ -3,14 +3,14 @@ import type { Metadata, Viewport } from "next";
 import { Providers } from "@/components/providers";
 
 export const metadata: Metadata = {
-  title: "Bot Dashboard",
-  description: "מרכז שליטה לכל הבוטים — n8n · Supabase · WhatsApp",
+  title: "Shift Digital — חדר בקרה",
+  description: "ניהול הסוכנות: בריאות הבוטים, תשלומי לקוחות, הכנסות והוצאות",
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  themeColor: "#0a0b0f",
+  themeColor: "#08090d",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

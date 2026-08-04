@@ -14,12 +14,22 @@ export function sqlValue(v: unknown, dataType: string): string {
   if (t.includes("bool")) {
     return v === true || v === "true" || v === "t" || v === 1 ? "true" : "false";
   }
+  // Integer types (integer/bigint/smallint/int2|4|8/serial): bind a CANONICAL
+  // base-10 integer VERBATIM. Never round-trip through Number() — that loses
+  // precision above 2^53 (a bigint PK could then match the wrong row) and would
+  // silently accept "1e1"/"0x10"/"12.9". Non-canonical input → null (no match).
+  if (/^(small|big)?int(eger)?$/.test(t) || /^int[248]$/.test(t) || /serial$/.test(t)) {
+    if (typeof v === "number") return Number.isInteger(v) ? String(v) : "null";
+    const s = String(v).trim();
+    return /^-?\d+$/.test(s) ? s : "null";
+  }
+  // Floating / arbitrary-precision numerics (numeric/decimal/double/real/float).
   if (
-    t.includes("int") ||
     t.includes("numeric") ||
     t.includes("double") ||
     t.includes("real") ||
-    t.includes("decimal")
+    t.includes("decimal") ||
+    t.includes("float")
   ) {
     const n = Number(v);
     return Number.isFinite(n) ? String(n) : "null";

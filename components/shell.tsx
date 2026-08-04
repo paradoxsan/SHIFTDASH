@@ -6,6 +6,9 @@ import { Icon } from "./icons";
 
 const ITEMS = [
   { href: "/", label: "סקירה", icon: "overview" },
+  { href: "/ops", label: "מוקד", icon: "ops" },
+  { href: "/analytics", label: "אנליטיקה", icon: "analytics" },
+  { href: "/provisioning", label: "הקמה", icon: "provision" },
   { href: "/crm", label: "CRM", icon: "crm" },
   { href: "/workflows", label: "אוטומציות", icon: "workflows" },
   { href: "/executions", label: "ריצות", icon: "executions" },
@@ -77,7 +80,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
       <main className="flex-1 min-w-0 pb-24 md:pb-6">{children}</main>
 
       {/* Mobile bottom nav */}
-      <nav className="md:hidden fixed bottom-0 inset-x-0 z-20 grid grid-cols-6 border-t border-[var(--color-border)] bg-[color-mix(in_srgb,var(--color-surface)_95%,transparent)] backdrop-blur pb-[env(safe-area-inset-bottom)]">
+      <nav className="md:hidden fixed bottom-0 inset-x-0 z-20 grid grid-cols-9 border-t border-[var(--color-border)] bg-[color-mix(in_srgb,var(--color-surface)_95%,transparent)] backdrop-blur pb-[env(safe-area-inset-bottom)]">
         {ITEMS.map((it) => (
           <Link
             key={it.href}

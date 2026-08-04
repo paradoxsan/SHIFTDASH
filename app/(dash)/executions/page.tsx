@@ -6,6 +6,7 @@ import { fetchJson } from "@/lib/client";
 import type { N8nExecution, ExecStatus } from "@/lib/types";
 import { PageHeader, Spinner, ErrorBanner, EmptyState } from "@/components/ui";
 import { useClientCtx } from "@/components/client-context";
+import { ErrorDrilldown } from "@/components/executions/error-drilldown";
 import { timeAgo, formatDuration } from "@/lib/format";
 
 const STATUS_META: Record<ExecStatus, { label: string; color: string }> = {
@@ -20,6 +21,7 @@ type Filter = "all" | "success" | "error";
 
 export default function ExecutionsPage() {
   const [filter, setFilter] = useState<Filter>("all");
+  const [drillId, setDrillId] = useState<string | null>(null);
   const { activeClient } = useClientCtx();
   const clientId = activeClient?.id;
   const { data, isLoading, error, isFetching } = useQuery({
@@ -75,8 +77,15 @@ export default function ExecutionsPage() {
         <div className="flex flex-col gap-1.5">
           {execs.map((e) => {
             const s = STATUS_META[e.status] ?? STATUS_META.unknown;
+            const drillable = e.status === "error" || e.status === "unknown";
             return (
-              <div key={e.id} className="card p-3 flex items-center justify-between gap-3">
+              <div
+                key={e.id}
+                onClick={drillable ? () => setDrillId(e.id) : undefined}
+                className={`card p-3 flex items-center justify-between gap-3 ${
+                  drillable ? "cursor-pointer hover:border-[var(--color-err)]" : ""
+                }`}
+              >
                 <div className="min-w-0 flex items-center gap-3">
                   <span className="dot shrink-0" style={{ background: s.color }} />
                   <div className="min-w-0">
@@ -86,6 +95,7 @@ export default function ExecutionsPage() {
                     <div className="text-[11px] text-[var(--color-muted)]">
                       {timeAgo(e.startedAt)} · {formatDuration(e.durationMs)}
                       {e.mode ? ` · ${e.mode}` : ""}
+                      {drillable ? " · הקש לפירוט" : ""}
                     </div>
                   </div>
                 </div>
@@ -97,6 +107,8 @@ export default function ExecutionsPage() {
           })}
         </div>
       )}
+
+      {drillId && <ErrorDrilldown id={drillId} onClose={() => setDrillId(null)} />}
     </div>
   );
 }

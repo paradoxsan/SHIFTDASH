@@ -6,10 +6,15 @@
 .env.production
 !.env.example
 secrets/
-n8n/
+# Root scratch only — anchored so app/api/n8n (real source) stays tracked.
+/n8n/
 # pasted n8n workflow exports (contain Green API tokens / prompts)
 /SDR*.json
 /*-workflow.json
+# Bot-template tenant params — real secrets/PII values (the committed template is
+# tokenized + secret-free; these *.params.local.json hold the real substitutions).
+templates/**/*.params.local.json
+*.params.local.json
 
 # ── Node / Next.js ───────────────────────────────────────────────────────────
 node_modules/

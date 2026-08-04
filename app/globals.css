@@ -1,24 +1,47 @@
 @import "tailwindcss";
 
-/* ── Design tokens (dark ops-console aesthetic) ───────────────────────────── */
+/* ── Design tokens ─────────────────────────────────────────────────────────────
+   Dark control-room aesthetic. Surfaces climb in 4 steps so cards can nest
+   without borders doing all the work; every accent has a "soft" variant for
+   tinted backgrounds (chips, alert rows) that stays readable on dark.
+   ────────────────────────────────────────────────────────────────────────── */
 @theme {
-  --color-bg: #0a0b0f;
-  --color-surface: #12141c;
-  --color-surface-2: #1a1d28;
-  --color-border: #262a38;
-  --color-muted: #8b93a7;
-  --color-text: #e7eaf3;
+  --color-bg: #08090d;
+  --color-surface: #101219;
+  --color-surface-2: #171a24;
+  --color-surface-3: #1f2330;
+  --color-border: #242938;
+  --color-border-strong: #333a4e;
+
+  --color-text: #e9ecf5;
+  --color-muted: #8d95ab;
+  --color-faint: #5d6478;
+
   --color-brand: #5b8cff;
+  --color-brand-soft: #1a2545;
   --color-ok: #2fbf71;
+  --color-ok-soft: #0f2a1d;
   --color-warn: #f5a524;
+  --color-warn-soft: #2e2110;
   --color-err: #ef4565;
+  --color-err-soft: #2e1220;
   --color-idle: #6b7280;
 
+  /* Claude surfaces get their own accent so the agent reads as a distinct
+     participant in the UI, not another data panel. */
+  --color-ai: #d97757;
+  --color-ai-soft: #2b1a14;
+
   --radius-card: 16px;
+  --radius-input: 10px;
+
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow-pop: 0 12px 32px -8px rgb(0 0 0 / 0.6), 0 0 0 1px var(--color-border);
 }
 
 * {
   -webkit-tap-highlight-color: transparent;
+  min-width: 0;
 }
 
 html,
@@ -28,14 +51,23 @@ body {
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
     "Helvetica Neue", Arial, "Noto Sans Hebrew", sans-serif;
   -webkit-font-smoothing: antialiased;
-}
-
-/* RTL-friendly: Hebrew UI reads right-to-left where text is Hebrew */
-body {
   text-rendering: optimizeLegibility;
+  font-feature-settings: "tnum" 0;
 }
 
-/* Thin scrollbars on desktop */
+/* Numbers line up in tables and stat tiles regardless of the RTL text around
+   them — critical for money and counts. */
+.tnum {
+  font-feature-settings: "tnum" 1;
+  font-variant-numeric: tabular-nums;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
 @media (pointer: fine) {
   *::-webkit-scrollbar {
     width: 8px;
@@ -45,15 +77,32 @@ body {
     background: var(--color-border);
     border-radius: 99px;
   }
+  *::-webkit-scrollbar-thumb:hover {
+    background: var(--color-border-strong);
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
 }
 
-/* ── Small reusable component classes ─────────────────────────────────────── */
 @layer components {
   .card {
     background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card);
   }
+  .card-interactive {
+    transition: border-color 0.15s, background 0.15s, transform 0.15s;
+  }
+  .card-interactive:hover {
+    border-color: var(--color-border-strong);
+    background: var(--color-surface-2);
+  }
+  .card-interactive:active {
+    transform: scale(0.995);
+  }
+
   .chip {
     display: inline-flex;
     align-items: center;
@@ -63,14 +112,16 @@ body {
     font-size: 0.72rem;
     font-weight: 600;
     border: 1px solid var(--color-border);
+    white-space: nowrap;
   }
+
   .btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 0.4rem;
     padding: 0.5rem 0.9rem;
-    border-radius: 10px;
+    border-radius: var(--radius-input);
     font-weight: 600;
     font-size: 0.875rem;
     border: 1px solid var(--color-border);
@@ -78,22 +129,75 @@ body {
     color: var(--color-text);
     transition: background 0.15s, border-color 0.15s, opacity 0.15s;
     cursor: pointer;
+    white-space: nowrap;
   }
-  .btn:hover {
-    background: var(--color-border);
+  .btn:hover:not(:disabled) {
+    background: var(--color-surface-3);
+    border-color: var(--color-border-strong);
   }
   .btn:disabled {
-    opacity: 0.5;
+    opacity: 0.45;
     cursor: not-allowed;
   }
   .btn-brand {
     background: var(--color-brand);
     border-color: var(--color-brand);
-    color: white;
+    color: #fff;
   }
-  .btn-brand:hover {
-    filter: brightness(1.08);
+  .btn-brand:hover:not(:disabled) {
+    filter: brightness(1.1);
     background: var(--color-brand);
+    border-color: var(--color-brand);
+  }
+  .btn-ai {
+    background: var(--color-ai);
+    border-color: var(--color-ai);
+    color: #fff;
+  }
+  .btn-ai:hover:not(:disabled) {
+    filter: brightness(1.1);
+    background: var(--color-ai);
+    border-color: var(--color-ai);
+  }
+  .btn-danger {
+    background: transparent;
+    border-color: color-mix(in srgb, var(--color-err) 45%, var(--color-border));
+    color: var(--color-err);
+  }
+  .btn-danger:hover:not(:disabled) {
+    background: var(--color-err-soft);
+    border-color: var(--color-err);
+  }
+  .btn-ghost {
+    background: transparent;
+    border-color: transparent;
+  }
+  .btn-ghost:hover:not(:disabled) {
+    background: var(--color-surface-2);
+    border-color: transparent;
+  }
+  .btn-sm {
+    padding: 0.3rem 0.6rem;
+    font-size: 0.78rem;
+    border-radius: 8px;
+  }
+
+  .input {
+    width: 100%;
+    background: var(--color-surface-2);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-input);
+    padding: 0.5rem 0.7rem;
+    font-size: 0.875rem;
+    color: var(--color-text);
+    transition: border-color 0.15s;
+  }
+  .input:focus {
+    border-color: var(--color-brand);
+    outline: none;
+  }
+  .input::placeholder {
+    color: var(--color-faint);
   }
 }
 
@@ -102,11 +206,65 @@ body {
   height: 8px;
   border-radius: 999px;
   display: inline-block;
+  flex: none;
 }
 @keyframes pulse-dot {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
 }
 .dot-live {
   animation: pulse-dot 1.6s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(-100%);
+  }
+}
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--color-surface-2);
+  border-radius: 8px;
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--color-surface-3) 80%, transparent),
+    transparent
+  );
+  animation: shimmer 1.4s infinite;
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.animate-in {
+  animation: fade-up 0.2s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
