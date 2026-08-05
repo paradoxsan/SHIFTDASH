@@ -46,11 +46,20 @@ async function outputSignals(
   const sourceFilter = has("source") ? `and source = 'api'` : "";
   const typeFilter = has("msg_type") ? `and msg_type = 'text'` : "";
 
+  // `payload` is jsonb, but a writer that inserts a JSON *string* (an n8n
+  // expression returning JSON.stringify(...) is the easy way to do this by
+  // accident) lands a string scalar in the column, and then `-> 'messages'`
+  // silently yields null — the scanner would report a permanently clean bot.
+  // Unwrap that case instead of trusting every producer to get it right.
+  const body = `
+    case when jsonb_typeof(payload) = 'string'
+         then ((payload #>> '{}')::jsonb) -> 'messages' -> 0 -> 'text' ->> 'body'
+         else payload -> 'messages' -> 0 -> 'text' ->> 'body'
+    end`;
+
   const rows = await runSql<OutboundRow>(
     ref,
-    `select id, chat_id,
-            payload->'messages'->0->'text'->>'body' as txt,
-            created_at
+    `select id, chat_id, ${body} as txt, created_at
        from public.audit_log
       where from_me = true ${sourceFilter} ${typeFilter}
         and created_at >= now() - interval '${OUTPUT_WINDOW_HOURS} hours'
