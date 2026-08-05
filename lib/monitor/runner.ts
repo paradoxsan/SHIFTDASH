@@ -7,7 +7,14 @@ import { loadClients, type ClientDef } from "../registry";
 import { listBotIdentity } from "../control-plane";
 import { listWorkflows, listExecutions } from "../n8n";
 import { gatherSignals, type ExecutionsContext } from "./signals";
-import { detectEvents, detectIntegrationEvent, rollupHealth } from "./detectors";
+import {
+  detectEvents,
+  detectIntegrationEvent,
+  detectPaymentEvent,
+  rollupHealth,
+  type DetectedEvent,
+} from "./detectors";
+import { loadPaymentStatuses } from "../services/client-cards";
 import {
   dispatchEvent,
   resolveStaleEvents,
@@ -49,13 +56,31 @@ export async function runMonitor(): Promise<MonitorResult> {
   const idBySlug = new Map(identities.map((i) => [i.slug, i]));
   const execCtx: ExecutionsContext = { recent };
 
+  // Late invoices, computed once for the whole cycle. Attributed to the client's
+  // bot so the alert reads "BRJewelry בפיגור" rather than coming from nowhere.
+  const payments = await loadPaymentStatuses().catch(() => null);
+  const paymentEvent = (slug: string, currency: string): DetectedEvent | null => {
+    const p = payments?.bySlug[slug];
+    if (!payments?.evaluated || !p) return null;
+    return detectPaymentEvent({
+      clientId: slug,
+      daysOverdue: p.daysOverdue,
+      overdueAmount: p.overdueAmount,
+      currency,
+    });
+  };
+
   for (const client of clients.slice(0, MAX_BOTS) as ClientDef[]) {
     const identity = idBySlug.get(client.id);
     if (!identity) continue; // not yet in the control-plane bots table
     result.botsChecked++;
     try {
       const sig = await gatherSignals(client, workflows, identity.id, execCtx);
-      const events = detectEvents(sig);
+      const overdue = paymentEvent(
+        client.id,
+        payments?.contracts[client.id]?.currency ?? "ILS"
+      );
+      const events = overdue ? [...detectEvents(sig), overdue] : detectEvents(sig);
 
       for (const e of events) {
         const { created, id } = await dispatchEvent({
@@ -73,8 +98,13 @@ export async function runMonitor(): Promise<MonitorResult> {
         }
       }
 
-      // Clear conditions that are no longer present.
-      await resolveStaleEvents(identity.id, events.map((e) => e.dedupKey));
+      // Clear conditions that are no longer present. When Morning could not be
+      // read this cycle we know nothing about the client's balance, so an open
+      // PAYMENT_OVERDUE is preserved rather than falsely resolved (and then
+      // re-raised, re-notifying, on the next successful cycle).
+      const keepKeys = events.map((e) => e.dedupKey);
+      if (!payments?.evaluated) keepKeys.push(`PAYMENT_OVERDUE:${client.id}`);
+      await resolveStaleEvents(identity.id, keepKeys);
 
       await upsertBotHealth({
         botId: identity.id,

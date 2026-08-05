@@ -8,6 +8,69 @@ import { getExecutionDetail } from "../n8n";
 import { hasWhapi, probeChannel } from "../whapi";
 import type { N8nExecution, N8nWorkflow } from "../types";
 import type { BotSignals } from "./detectors";
+import { scanBotOutput, type BotMessage, type OutputFinding } from "./output-quality";
+
+/** How far back to read the bot's own replies each cycle. Long enough that a
+ *  burst isn't missed between runs, short enough that a fixed bug clears. */
+const OUTPUT_WINDOW_HOURS = 6;
+/** Cap the rows read per bot — a busy bot must not make the cron unbounded. */
+const OUTPUT_LIMIT = 300;
+
+interface OutboundRow {
+  id: number | string;
+  chat_id: string | null;
+  txt: string | null;
+  created_at: string;
+}
+
+/**
+ * What the bot actually SAID recently, scanned for garbage.
+ *
+ * Source is the bot's own `audit_log` (the tcenter-sales template logs every
+ * inbound and outbound message). `source = 'api'` is the discriminator that
+ * matters: `from_me` alone also matches the owner replying by hand from their
+ * phone, and flagging a human's message as bot output would be nonsense.
+ *
+ * Returns undefined — NOT an empty array — when this bot keeps no outbound log,
+ * so "we didn't look" can't be mistaken for "we looked and it was clean".
+ */
+async function outputSignals(
+  ref: string,
+  allowedTables: string[],
+  columns: { name: string }[]
+): Promise<OutputFinding[] | undefined> {
+  if (!allowedTables.includes("audit_log")) return undefined;
+  const has = (c: string) => columns.some((x) => x.name === c);
+  if (!has("from_me") || !has("payload") || !has("created_at")) return undefined;
+
+  const sourceFilter = has("source") ? `and source = 'api'` : "";
+  const typeFilter = has("msg_type") ? `and msg_type = 'text'` : "";
+
+  const rows = await runSql<OutboundRow>(
+    ref,
+    `select id, chat_id,
+            payload->'messages'->0->'text'->>'body' as txt,
+            created_at
+       from public.audit_log
+      where from_me = true ${sourceFilter} ${typeFilter}
+        and created_at >= now() - interval '${OUTPUT_WINDOW_HOURS} hours'
+      order by created_at desc
+      limit ${OUTPUT_LIMIT}`
+  );
+
+  const messages: BotMessage[] = rows
+    // A null body here means a non-text send (link preview, media) rather than
+    // an empty reply — those are not the bot failing to say anything.
+    .filter((r) => r.txt !== null)
+    .map((r) => ({
+      id: String(r.id),
+      chatId: r.chat_id ?? "",
+      text: r.txt,
+      at: r.created_at,
+    }));
+
+  return scanBotOutput(messages);
+}
 
 /** How many failed runs to open per bot when sampling error text. Each costs an
  *  n8n round-trip, so keep it small — a recurring failure repeats anyway. */
@@ -61,6 +124,7 @@ export async function gatherSignals(
   let rlsDisabledTables = 0;
   let lastInboundAgeMin: number | null = null;
   let inbound7d: number | null = null;
+  let outputFindings: OutputFinding[] | undefined;
 
   try {
     const schema = await introspect(client.supabaseRef);
@@ -111,6 +175,18 @@ export async function gatherSignals(
       );
       rlsDisabledTables = Number(r[0]?.n ?? 0);
     }
+
+    // What the bot said. Isolated so a missing/odd audit_log costs us this
+    // signal only, and leaves it `undefined` rather than a false "all clean".
+    try {
+      outputFindings = await outputSignals(
+        client.supabaseRef,
+        allowed,
+        schema.tables["audit_log"] ?? []
+      );
+    } catch {
+      outputFindings = undefined;
+    }
   } catch {
     // bot has no inbox / unreachable — leave signals at defaults
   }
@@ -144,5 +220,6 @@ export async function gatherSignals(
     channelDetail,
     lastInboundAgeMin,
     inbound7d,
+    outputFindings,
   };
 }
