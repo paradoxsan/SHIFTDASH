@@ -21,13 +21,26 @@ export function formatNumber(n: number | null | undefined): string {
   return new Intl.NumberFormat("he-IL").format(n);
 }
 
-export function formatCurrency(n: number | null | undefined): string {
+export function formatCurrency(n: number | null | undefined, currency = "ILS"): string {
   if (n == null) return "—";
-  return new Intl.NumberFormat("he-IL", {
-    style: "currency",
-    currency: "ILS",
-    maximumFractionDigits: 0,
-  }).format(n);
+  try {
+    return new Intl.NumberFormat("he-IL", {
+      style: "currency",
+      currency,
+      maximumFractionDigits: 0,
+    }).format(n);
+  } catch {
+    // An unrecognised currency code from the accounting system must not throw
+    // inside a render — fall back to a plain number plus the raw code.
+    return `${formatNumber(Math.round(n))} ${currency}`;
+  }
+}
+
+/** Signed amount — for a profit line where the minus has to be unmissable. */
+export function formatDelta(n: number | null | undefined, currency = "ILS"): string {
+  if (n == null) return "—";
+  const s = formatCurrency(Math.abs(n), currency);
+  return n < 0 ? `−${s}` : s;
 }
 
 export function formatDateTime(value: string | number | null | undefined): string {

@@ -3,6 +3,8 @@
 // action to take. Kept pure and free of I/O so the wording is unit-testable and
 // shared between the Today screen and any notification channel.
 import type { EventType, Severity } from "./monitor/detectors";
+import { formatCurrency } from "./format";
+import { issueLabel } from "./monitor/output-quality";
 
 export type AlertTone = "err" | "warn" | "brand";
 
@@ -113,6 +115,30 @@ export function describeEvent(
       return {
         title: `${labels[name] ?? name} לא זמין`,
         detail: str(payload, "detail") || "החיבור נכשל — פעולות שתלויות בו לא יעבדו.",
+      };
+    }
+    case "BAD_BOT_OUTPUT": {
+      const total = num(payload, "total");
+      const chats = num(payload, "chats");
+      const worst = str(payload, "worst");
+      const sample = str(payload, "example");
+      const label = issueLabel(worst);
+      return {
+        title: `הבוט של ${who} שולח ${label} ללקוחות`,
+        detail:
+          `${total ?? "כמה"} הודעות${chats ? ` ב-${chats} שיחות` : ""} בשעות האחרונות לא נראות כמו תשובה לאדם.` +
+          (sample ? ` דוגמה: "${sample}"` : "") +
+          " הבוט עובד — התוכן הוא מה ששבור.",
+      };
+    }
+    case "PAYMENT_OVERDUE": {
+      const days = num(payload, "daysOverdue");
+      const amount = num(payload, "overdueAmount");
+      return {
+        title: `${who} בפיגור תשלום`,
+        detail: `${amount != null ? `${formatCurrency(amount, str(payload, "currency") || "ILS")} ` : ""}לא שולם${
+          days != null ? `, ${Math.round(days)} ימים אחרי מועד הפירעון` : ""
+        }.`,
       };
     }
     default:

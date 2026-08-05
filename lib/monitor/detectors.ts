@@ -4,6 +4,7 @@
 // rules are unit-testable. Each event carries a STABLE dedup_key so an ongoing
 // condition produces exactly one open event (the partial-unique index dedups
 // re-runs); a resolved condition can recur later.
+import { isReportable, summarizeOutput, type OutputFinding } from "./output-quality";
 
 export type EventType =
   | "BOT_DOWN"
@@ -14,7 +15,9 @@ export type EventType =
   | "CREDENTIAL_EXPIRED"
   | "CHANNEL_DOWN"
   | "BOT_SILENT"
-  | "INTEGRATION_DOWN";
+  | "INTEGRATION_DOWN"
+  | "PAYMENT_OVERDUE"
+  | "BAD_BOT_OUTPUT";
 
 export type Severity = "info" | "low" | "medium" | "high" | "critical";
 
@@ -35,6 +38,10 @@ export interface BotSignals {
   lastInboundAgeMin?: number | null;
   /** Inbound messages over the last 7 days — distinguishes "silent" from "quiet". */
   inbound7d?: number | null;
+  /** Garbage the bot SENT to customers in the recent window (raw JSON, stack
+   *  traces, unrendered templates). Undefined = this bot's outbound text could
+   *  not be read, which is not the same as clean. */
+  outputFindings?: OutputFinding[];
 }
 
 export interface DetectedEvent {
@@ -139,6 +146,26 @@ export function detectEvents(sig: BotSignals): DetectedEvent[] {
     });
   }
 
+  // The bot is up, connected and answering — with garbage. Every other signal
+  // here reads healthy in that state, which is exactly how T-CENTER shipped raw
+  // JSON to customers for days unnoticed. Critical: a customer is reading it now.
+  const output = summarizeOutput(sig.outputFindings ?? []);
+  if (isReportable(output)) {
+    out.push({
+      type: "BAD_BOT_OUTPUT",
+      severity: "critical",
+      dedupKey: `BAD_BOT_OUTPUT:${sig.botId}`,
+      payload: {
+        total: output.total,
+        chats: output.chats,
+        worst: output.worst,
+        byIssue: output.byIssue,
+        example: output.example?.excerpt ?? "",
+        exampleChatId: output.example?.chatId ?? "",
+      },
+    });
+  }
+
   // "Silent" only means something for a bot that normally has traffic — a
   // low-volume bot being quiet overnight is not an incident.
   if (
@@ -168,6 +195,33 @@ export function detectIntegrationEvent(name: string, ok: boolean, detail?: strin
   };
 }
 
+// A late invoice is a business incident, not a technical one, so it is detected
+// separately from BotSignals: it is keyed on the CLIENT, and a bot can be
+// perfectly healthy while its owner hasn't paid in two months.
+export const OVERDUE_GRACE_DAYS = 3; // don't shout about an invoice that's a day late
+export const OVERDUE_SERIOUS_DAYS = 30; // at a month late, escalate
+
+/** Pure: should this client's unpaid balance raise an alert? */
+export function detectPaymentEvent(args: {
+  /** Client slug — the dedup key must be stable across cron runs. */
+  clientId: string;
+  daysOverdue: number;
+  overdueAmount: number;
+  currency?: string;
+}): DetectedEvent | null {
+  if (args.daysOverdue < OVERDUE_GRACE_DAYS || args.overdueAmount <= 0) return null;
+  return {
+    type: "PAYMENT_OVERDUE",
+    severity: args.daysOverdue >= OVERDUE_SERIOUS_DAYS ? "high" : "medium",
+    dedupKey: `PAYMENT_OVERDUE:${args.clientId}`,
+    payload: {
+      daysOverdue: Math.round(args.daysOverdue),
+      overdueAmount: args.overdueAmount,
+      currency: args.currency ?? "ILS",
+    },
+  };
+}
+
 export type HealthStatus = "healthy" | "degraded" | "down" | "unknown";
 
 /** Pure: roll a bot's signals up to one health status for the Overview badge. */
@@ -177,6 +231,8 @@ export function rollupHealth(sig: BotSignals): HealthStatus {
   // even though n8n still reports the workflow as active.
   if (sig.channelOk === false) return "down";
   if ((sig.recentErrorMessages ?? []).some(looksLikeCredentialFailure)) return "down";
+  // Answering with garbage is not "healthy", whatever n8n reports.
+  if (isReportable(summarizeOutput(sig.outputFindings ?? []))) return "degraded";
   if (sig.workflowActive == null) return "unknown";
   const degraded =
     (sig.oldestNewAgeMin != null && sig.oldestNewAgeMin >= STUCK_MIN) ||

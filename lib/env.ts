@@ -64,6 +64,19 @@ export const env = {
   anthropicKey: () => process.env.ANTHROPIC_API_KEY?.trim() || "",
   aiConfigured: () => Boolean(process.env.ANTHROPIC_API_KEY?.trim()),
 
+  // ── Morning / Green Invoice (Phase 3: the כסף screen) ──────────────────────
+  // Morning issues a PAIR: an API key id AND a secret. Both are required to mint
+  // the JWT — an id on its own authenticates nothing. Optional at boot so the
+  // rest of the dashboard runs without them; the money screen says "not
+  // connected" instead of 500-ing, and starts working the moment both are set.
+  morningId: () => process.env.MORNING_API_KEY_ID?.trim() || "",
+  morningSecret: () => process.env.MORNING_API_SECRET?.trim() || "",
+  morningConfigured: () =>
+    Boolean(process.env.MORNING_API_KEY_ID?.trim() && process.env.MORNING_API_SECRET?.trim()),
+  // Point at Morning's sandbox while testing so no real document is ever issued.
+  morningBaseUrl: () =>
+    (process.env.MORNING_API_BASE ?? "https://api.greeninvoice.co.il/api/v1").replace(/\/+$/, ""),
+
   // ── Google OAuth login (allowlisted emails) ────────────────────────────────
   googleOAuthClientId: () => required("GOOGLE_OAUTH_CLIENT_ID"),
   googleOAuthClientSecret: () => required("GOOGLE_OAUTH_CLIENT_SECRET"),
