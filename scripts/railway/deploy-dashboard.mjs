@@ -16,6 +16,7 @@
 import { readFileSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { randomBytes } from "node:crypto";
 
 const API = "https://backboard.railway.com/graphql/v2";
 
@@ -31,8 +32,10 @@ function storedCliToken() {
     if (!path || !existsSync(path)) continue;
     try {
       const cfg = JSON.parse(readFileSync(path, "utf8"));
-      const token = cfg?.user?.token ?? cfg?.token;
-      if (token) return String(token);
+      // `railway login` writes user.accessToken (short-lived, with a refresh
+      // token beside it); older versions wrote user.token.
+      const token = cfg?.user?.accessToken ?? cfg?.user?.token ?? cfg?.token;
+      if (typeof token === "string" && token) return token;
     } catch {
       /* try the next location */
     }
@@ -57,10 +60,18 @@ if (!TOKEN) {
 /** Variables that must never leave this machine, or that Railway supplies itself. */
 const SKIP = new Set([
   "VERCEL_OIDC_TOKEN", // Vercel-only, expires, meaningless here
-  "PORT", // Railway injects it
   "NODE_ENV",
   "GOOGLE_SERVICE_ACCOUNT_FILE", // a local path; the JSON var is what travels
 ]);
+
+/**
+ * The port has to be pinned, not inherited. Railway injects PORT=8080 by
+ * default while a service domain is created against a target port — leave them
+ * to drift apart and the container runs perfectly on 8080 while every request
+ * to the public URL returns "Application failed to respond". One number, set in
+ * both places, in the same script.
+ */
+const PORT = 3000;
 
 async function gql(query, variables = {}) {
   const res = await fetch(API, {
@@ -93,6 +104,17 @@ function readEnvFile(path) {
     }
     if (!SKIP.has(m[1]) && v !== "") out[m[1]] = v;
   }
+
+  // Locally the Google credential is usually a FILE path; there is no file on
+  // Railway, so inline the key itself — otherwise every Sheets read (leads,
+  // reminders) fails in production while working perfectly on this machine.
+  const keyFile = (readFileSync(path, "utf8").match(/^GOOGLE_SERVICE_ACCOUNT_FILE=(.*)$/m)?.[1] ?? "")
+    .trim()
+    .replace(/^['"]|['"]$/g, "");
+  if (!out.GOOGLE_SERVICE_ACCOUNT_JSON && keyFile && existsSync(keyFile)) {
+    // Re-serialise so the multi-line PEM inside becomes one safe value.
+    out.GOOGLE_SERVICE_ACCOUNT_JSON = JSON.stringify(JSON.parse(readFileSync(keyFile, "utf8")));
+  }
   return out;
 }
 
@@ -108,17 +130,27 @@ if (!workspace) throw new Error("no workspace on this account");
 log(`workspace: ${workspace.name} (${workspace.id})`);
 
 // ── 2. find or create the project ────────────────────────────────────────────
-const projects = await gql(`
-  query {
-    me {
-      projects {
-        edges { node { id name environments { edges { node { id name } } }
-                       services { edges { node { id name } } } } }
-      }
-    }
-  }
-`);
-let project = projects.me.projects.edges.map((e) => e.node).find((p) => p.name === PROJECT);
+// Scoped to the workspace on purpose: `me { projects }` comes back EMPTY for a
+// personal workspace, so using it makes this script create a second project on
+// every run instead of finding the one it made last time.
+const projects = await gql(
+  `query ($workspaceId: String!) {
+     projects(workspaceId: $workspaceId, first: 100) {
+       edges { node { id name environments { edges { node { id name } } }
+                      services { edges { node { id name } } } } }
+     }
+   }`,
+  { workspaceId: workspace.id }
+);
+const found = projects.projects.edges.map((e) => e.node).filter((p) => p.name === PROJECT);
+if (found.length > 1) {
+  console.error(
+    `${found.length} projects are called "${PROJECT}": ${found.map((p) => p.id).join(", ")}.` +
+      ` Delete the extras in the Railway dashboard, then re-run.`
+  );
+  process.exit(1);
+}
+let project = found[0];
 
 if (!project) {
   if (DRY) {
@@ -173,8 +205,56 @@ if (!service) {
 }
 if (!service) process.exit(0); // dry-run stops here
 
-// ── 4. push the environment variables ────────────────────────────────────────
+// ── 4. work out the public URL first, so it can go into the variables ────────
+const domains = await gql(
+  `query ($projectId: String!, $environmentId: String!, $serviceId: String!) {
+     domains(projectId: $projectId, environmentId: $environmentId, serviceId: $serviceId) {
+       serviceDomains { domain } customDomains { domain }
+     }
+   }`,
+  { projectId: project.id, environmentId: environment.id, serviceId: service.id }
+);
+let domain =
+  domains.domains.customDomains?.[0]?.domain ?? domains.domains.serviceDomains?.[0]?.domain;
+if (!domain && !DRY) {
+  const created = await gql(
+    `mutation ($input: ServiceDomainCreateInput!) { serviceDomainCreate(input: $input) { domain } }`,
+    { input: { environmentId: environment.id, serviceId: service.id, targetPort: PORT } }
+  );
+  domain = created.serviceDomainCreate.domain;
+  log(`created domain ${domain}`);
+} else if (domain) {
+  log(`domain: ${domain}`);
+}
+
+// ── 5. push the environment variables ────────────────────────────────────────
 const vars = readEnvFile(ENV_FILE);
+
+// What is already up there. Read before writing so a re-run cannot rotate a
+// generated secret and silently break whatever is using it.
+const existing = DRY
+  ? {}
+  : (
+      await gql(
+        `query ($projectId: String!, $environmentId: String!, $serviceId: String!) {
+           variables(projectId: $projectId, environmentId: $environmentId, serviceId: $serviceId)
+         }`,
+        { projectId: project.id, environmentId: environment.id, serviceId: service.id }
+      )
+    ).variables ?? {};
+
+// Must match the domain's target port — see PORT above.
+vars.PORT = String(PORT);
+
+// Pin the origin instead of trusting the Host header, and give the monitoring
+// cron a secret the first time (nothing calls it yet, so a fresh one is fine).
+if (domain && !vars.AUTH_BASE_URL && !existing.AUTH_BASE_URL) {
+  vars.AUTH_BASE_URL = `https://${domain}`;
+}
+if (!vars.CRON_SECRET && !existing.CRON_SECRET) {
+  vars.CRON_SECRET = randomBytes(24).toString("base64url");
+  log("generated a CRON_SECRET (kept on Railway only — nothing echoes it)");
+}
 if (NO_VARS) {
   log("skipping variables (--no-vars)");
 } else if (Object.keys(vars).length === 0) {
@@ -197,34 +277,13 @@ if (NO_VARS) {
   }
 }
 
-// ── 5. make sure it has a public URL ─────────────────────────────────────────
-const domains = await gql(
-  `query ($projectId: String!, $environmentId: String!, $serviceId: String!) {
-     domains(projectId: $projectId, environmentId: $environmentId, serviceId: $serviceId) {
-       serviceDomains { domain } customDomains { domain }
-     }
-   }`,
-  { projectId: project.id, environmentId: environment.id, serviceId: service.id }
-);
-let domain = domains.domains.serviceDomains?.[0]?.domain;
-if (!domain && !DRY) {
-  const created = await gql(
-    `mutation ($input: ServiceDomainCreateInput!) { serviceDomainCreate(input: $input) { domain } }`,
-    { input: { environmentId: environment.id, serviceId: service.id, targetPort: 3000 } }
-  );
-  domain = created.serviceDomainCreate.domain;
-  log(`created domain ${domain}`);
-} else if (domain) {
-  log(`domain: ${domain}`);
-}
-
+// ── 6. what is left for a human ──────────────────────────────────────────────
 if (domain) {
   log("");
   log(`URL: https://${domain}`);
   log("");
-  log("Two things this script cannot do for you:");
-  log(`  1. Google login will fail until you add the new redirect URI in Google Cloud`);
-  log(`     Console → Credentials → the OAuth client:`);
-  log(`       https://${domain}/api/auth/google/callback`);
-  log(`  2. Set AUTH_BASE_URL=https://${domain} so the app stops trusting the Host header.`);
+  log("The one thing this script cannot do for you: Google login will fail until");
+  log("this redirect URI is registered in Google Cloud Console → Credentials →");
+  log("the OAuth client used by the dashboard:");
+  log(`  https://${domain}/api/auth/google/callback`);
 }
