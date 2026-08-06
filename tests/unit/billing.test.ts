@@ -114,8 +114,27 @@ describe("normalizeDocument", () => {
     expect(normalizeDocument(rawDoc({ status: undefined }))?.paid).toBe(false);
   });
 
-  it("flags cancelled documents", () => {
-    expect(normalizeDocument(rawDoc({ status: 3 }))?.cancelled).toBe(true);
+  // Live pair: #80005 (status 3, −150, "ביטול קבלה 80004") is the cancelling
+  // document; #80004 (status 4, +150) is the receipt it cancelled. Flagging only
+  // one of them left the voided +150 counted as income.
+  it("flags both halves of a void — the cancelling document and the cancelled one", () => {
+    expect(normalizeDocument(rawDoc({ number: 80005, status: 3, amount: -150 }))?.cancelled).toBe(
+      true
+    );
+    expect(normalizeDocument(rawDoc({ number: 80004, status: 4, amount: 150 }))?.cancelled).toBe(
+      true
+    );
+    expect(normalizeDocument(rawDoc({ status: 0 }))?.cancelled).toBe(false);
+  });
+
+  it("converts a foreign-currency document to shekels when Morning supplies the local amount", () => {
+    expect(
+      normalizeDocument(rawDoc({ amount: 100, currency: "USD", amountLocal: 293.5 }))
+    ).toMatchObject({ amount: 293.5, currency: "ILS" });
+    expect(normalizeDocument(rawDoc({ amount: 100, currency: "USD" }))).toMatchObject({
+      amount: 100,
+      currency: "USD",
+    });
   });
 
   it("tolerates a missing client block", () => {
@@ -137,6 +156,36 @@ describe("normalizeExpense", () => {
   });
   it("drops unusable rows", () => {
     expect(normalizeExpense({ id: "e2", date: "2026-06-03" })).toBeNull();
+  });
+
+  // The real Supabase bill from the live books: $25 at rate 2.935 = ₪73.38.
+  // Reading `amount` put ₪25 in a shekel total and understated the month.
+  it("converts a foreign-currency expense to shekels via amountLocal", () => {
+    const e = normalizeExpense({
+      id: "74855aeb",
+      amount: 25,
+      currency: "USD",
+      currencyRate: 2.935,
+      amountLocal: 73.38,
+      date: "2026-06-13",
+      supplier: { name: "Supabase Pte. Ltd." },
+    });
+    expect(e).toMatchObject({ amount: 73.38, currency: "ILS" });
+  });
+
+  it("leaves a shekel expense alone even if amountLocal is absent or zero", () => {
+    expect(
+      normalizeExpense({ id: "e3", amount: 240, currency: "ILS", amountLocal: 0, date: "2026-06-03" })
+    ).toMatchObject({ amount: 240, currency: "ILS" });
+  });
+
+  it("marks a deleted expense inactive rather than dropping it as unparseable", () => {
+    expect(normalizeExpense({ id: "e4", amount: 10, date: "2026-06-03", active: false })).toMatchObject(
+      { active: false }
+    );
+    expect(normalizeExpense({ id: "e5", amount: 10, date: "2026-06-03" })).toMatchObject({
+      active: true,
+    });
   });
 });
 
@@ -167,8 +216,8 @@ describe("summarizeByMonth", () => {
     const rows = summarizeByMonth(
       [doc({ date: "2026-05-10", amount: 1000 }), doc({ date: "2026-06-10", amount: 2000 })],
       [
-        { id: "e1", supplierName: "a", amount: 300, currency: "ILS", date: "2026-05-02" },
-        { id: "e2", supplierName: "b", amount: 500, currency: "ILS", date: "2026-06-02" },
+        { id: "e1", supplierName: "a", amount: 300, currency: "ILS", date: "2026-05-02", active: true },
+        { id: "e2", supplierName: "b", amount: 500, currency: "ILS", date: "2026-06-02", active: true },
       ],
       months
     );
@@ -178,17 +227,68 @@ describe("summarizeByMonth", () => {
     ]);
   });
 
-  it("excludes cancelled documents and proformas from income", () => {
+  it("keeps a deleted expense out of the totals", () => {
+    const rows = summarizeByMonth(
+      [],
+      [
+        { id: "e1", supplierName: "a", amount: 300, currency: "ILS", date: "2026-05-02", active: true },
+        { id: "e2", supplierName: "b", amount: 900, currency: "ILS", date: "2026-05-03", active: false },
+      ],
+      ["2026-05"]
+    );
+    expect(rows[0].expense).toBe(300);
+  });
+
+  it("excludes cancelled documents, proformas and settled receipts from invoice income", () => {
     const rows = summarizeByMonth(
       [
+        doc({ date: "2026-05-09", amount: 900 }),
         doc({ date: "2026-05-10", amount: 1000, cancelled: true }),
         doc({ date: "2026-05-11", amount: 700, type: DOC_TYPE.PROFORMA }),
-        doc({ date: "2026-05-12", amount: 400, type: DOC_TYPE.RECEIPT }),
+        // A receipt settling the invoice above — counting it too would double-book.
+        doc({ date: "2026-05-12", amount: 900, type: DOC_TYPE.RECEIPT }),
       ],
       [],
       ["2026-05"]
     );
-    expect(rows[0].income).toBe(0);
+    expect(rows[0].income).toBe(900);
+  });
+
+  // Shift Digital is an עוסק פטור: its live books contain type-400 receipts and
+  // nothing else. Excluding receipts unconditionally reported ₪0 against real
+  // revenue, so a set with no invoices treats its receipts as the income.
+  it("counts receipts as income for a business that issues no invoices", () => {
+    const rows = summarizeByMonth(
+      [
+        doc({ id: "80002", date: "2026-06-11", amount: 1150, type: DOC_TYPE.RECEIPT }),
+        doc({ id: "80001", date: "2026-06-10", amount: 300, type: DOC_TYPE.RECEIPT }),
+      ],
+      [],
+      ["2026-06"]
+    );
+    expect(rows[0].income).toBe(1450);
+  });
+
+  // The live void pair: receipt #80004 (+150, status 4) cancelled by #80005
+  // (−150, status 3). Both halves are void, so the month nets to the ₪100 that
+  // was really taken — not ₪250, and not ₪100 short.
+  it("nets a voided receipt and its cancelling document to zero", () => {
+    const rows = summarizeByMonth(
+      [
+        doc({ id: "80006", date: "2026-07-30", amount: 100, type: DOC_TYPE.RECEIPT }),
+        doc({ id: "80004", date: "2026-07-18", amount: 150, type: DOC_TYPE.RECEIPT, cancelled: true }),
+        doc({
+          id: "80005",
+          date: "2026-07-23",
+          amount: -150,
+          type: DOC_TYPE.RECEIPT,
+          cancelled: true,
+        }),
+      ],
+      [],
+      ["2026-07"]
+    );
+    expect(rows[0].income).toBe(100);
   });
 
   it("lets a credit invoice reduce income", () => {
@@ -250,10 +350,51 @@ describe("clientPaymentStatus", () => {
     expect(s.overdueAmount).toBe(0);
   });
 
-  it("says paid when nothing is open", () => {
-    expect(clientPaymentStatus({ ...base, contract, docs: [doc({ paid: true })] }).state).toBe(
-      "paid"
-    );
+  it("says paid when nothing is open and this month's money is in", () => {
+    const s = clientPaymentStatus({
+      ...base,
+      contract,
+      docs: [doc({ paid: true, type: DOC_TYPE.RECEIPT, date: "2026-08-02", amount: 500 })],
+    });
+    expect(s.state).toBe("paid");
+    expect(s.lastPaidOn).toBe("2026-08-02");
+    expect(s.lastPaidAmount).toBe(500);
+  });
+
+  // A receipt-only business never carries an open invoice, so "nothing open"
+  // would read as "paid" forever — including for a retainer client who last paid
+  // two months ago. That is the one thing the clients screen must not say.
+  it("says awaiting for a retainer client with no payment this month", () => {
+    const s = clientPaymentStatus({
+      ...base,
+      contract,
+      docs: [doc({ paid: true, type: DOC_TYPE.RECEIPT, date: "2026-06-11", amount: 500 })],
+    });
+    expect(s.state).toBe("awaiting");
+    expect(s.lastPaidOn).toBe("2026-06-11");
+    expect(s.overdueAmount).toBe(0);
+  });
+
+  it("does not demand a monthly payment from a client who is not on a retainer", () => {
+    expect(
+      clientPaymentStatus({ ...base, contract: { ...contract, monthlyFee: null }, docs: [] }).state
+    ).toBe("paid");
+    expect(
+      clientPaymentStatus({ ...base, contract: { ...contract, billingStatus: "paused" }, docs: [] })
+        .state
+    ).toBe("paid");
+  });
+
+  it("does not count a voided receipt as this month's payment", () => {
+    const s = clientPaymentStatus({
+      ...base,
+      contract,
+      docs: [
+        doc({ type: DOC_TYPE.RECEIPT, date: "2026-08-01", amount: 500, cancelled: true, paid: true }),
+      ],
+    });
+    expect(s.state).toBe("awaiting");
+    expect(s.lastPaidOn).toBeNull();
   });
 
   it("says due for an invoice that is open but not yet late", () => {

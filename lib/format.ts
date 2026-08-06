@@ -55,6 +55,14 @@ export function formatDateTime(value: string | number | null | undefined): strin
   }).format(d);
 }
 
+/** A calendar date (`YYYY-MM-DD`) as DD/MM/YYYY — no time, because an accounting
+ *  document has a date and not a moment. */
+export function formatDate(value: string | null | undefined): string {
+  if (!value) return "—";
+  const m = value.slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : "—";
+}
+
 export function formatDuration(ms: number | null | undefined): string {
   if (ms == null) return "—";
   if (ms < 1000) return `${ms}ms`;

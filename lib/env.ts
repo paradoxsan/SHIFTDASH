@@ -61,8 +61,24 @@ export const env = {
 
   // Cross-bot AI (Phase 9): optional. NL-query + daily digest call Claude only
   // when configured; otherwise those endpoints return "AI not configured".
+  //
+  // Two credential shapes are accepted, because they are billed differently:
+  //   ANTHROPIC_API_KEY   — a console.anthropic.com key, sent as x-api-key and
+  //                         billed per token to the API account.
+  //   ANTHROPIC_AUTH_TOKEN— any bearer credential (an OAuth token from a Claude
+  //                         subscription, or a gateway/proxy token). Sent as
+  //                         Authorization: Bearer.
+  // The bearer wins when both are present, so dropping a token in overrides the
+  // key without editing code.
   anthropicKey: () => process.env.ANTHROPIC_API_KEY?.trim() || "",
-  aiConfigured: () => Boolean(process.env.ANTHROPIC_API_KEY?.trim()),
+  anthropicAuthToken: () => process.env.ANTHROPIC_AUTH_TOKEN?.trim() || "",
+  aiConfigured: () =>
+    Boolean(process.env.ANTHROPIC_API_KEY?.trim() || process.env.ANTHROPIC_AUTH_TOKEN?.trim()),
+
+  /** The model the copilot and the digest run on. */
+  aiModel: () => process.env.ANTHROPIC_MODEL?.trim() || "claude-opus-5",
+  /** How hard the model may think before answering: low | medium | high | xhigh. */
+  aiEffort: () => (process.env.ANTHROPIC_EFFORT?.trim() || "xhigh").toLowerCase(),
 
   // ── Morning / Green Invoice (Phase 3: the כסף screen) ──────────────────────
   // Morning issues a PAIR: an API key id AND a secret. Both are required to mint

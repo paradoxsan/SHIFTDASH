@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { fetchJson } from "@/lib/client";
-import { formatCurrency } from "@/lib/format";
+import { formatCurrency, formatDate } from "@/lib/format";
 import { Icon } from "@/components/icons";
 import {
   Badge,
@@ -45,6 +45,21 @@ function PaymentLine({ c }: { c: ClientCardView }) {
       <span style={{ color: "var(--color-warn)" }}>
         {formatCurrency(c.payment.openAmount, currency)} פתוח
         {c.payment.openCount > 1 ? ` · ${c.payment.openCount} חשבוניות` : ""}
+      </span>
+    );
+  }
+  if (c.payment.state === "awaiting") {
+    return (
+      <span style={{ color: "var(--color-warn)" }}>
+        טרם שולם החודש
+        {c.payment.lastPaidOn ? ` · אחרון ${formatDate(c.payment.lastPaidOn)}` : ""}
+      </span>
+    );
+  }
+  if (c.payment.state === "paid" && c.payment.lastPaidOn) {
+    return (
+      <span style={{ color: "var(--color-ok)" }}>
+        שולם {formatDate(c.payment.lastPaidOn)}
       </span>
     );
   }

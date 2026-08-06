@@ -18,13 +18,35 @@ export const DOC_TYPE = {
   RECEIPT: 400, // קבלה
 } as const;
 
-/** Types that represent money earned. A receipt is excluded: it settles an
- *  invoice that was already counted, so counting both double-books revenue. */
+/** Types that represent money earned when the business issues invoices. A
+ *  receipt is excluded here: it settles an invoice that was already counted, so
+ *  counting both double-books revenue. See `incomeDocs` for the exception. */
 export const INCOME_TYPES: readonly number[] = [
   DOC_TYPE.TAX_INVOICE,
   DOC_TYPE.INVOICE_RECEIPT,
   DOC_TYPE.CREDIT_INVOICE,
 ];
+
+/** What income looks like for a business that issues no invoices at all. */
+const RECEIPT_INCOME_TYPES: readonly number[] = [DOC_TYPE.RECEIPT, DOC_TYPE.CREDIT_INVOICE];
+
+/**
+ * The documents that represent income in this particular set.
+ *
+ * An עוסק פטור issues no חשבונית מס — a קבלה IS the income document, and Shift
+ * Digital's live books are exactly that: every document is type 400. Excluding
+ * receipts unconditionally reported ₪0 income against real revenue. So the rule
+ * is evidence-based rather than fixed: when a set contains no invoice of any
+ * kind, its receipts are the income; the moment a real invoice appears, receipts
+ * go back to being settlements of documents already counted.
+ */
+export function incomeDocs(docs: MorningDoc[]): readonly MorningDoc[] {
+  const live = docs.filter((d) => !d.cancelled);
+  const types = live.some((d) => INCOME_TYPES.includes(d.type))
+    ? INCOME_TYPES
+    : RECEIPT_INCOME_TYPES;
+  return live.filter((d) => types.includes(d.type));
+}
 
 /** Document types that are settled at the moment they are issued. */
 const SELF_SETTLING: readonly number[] = [DOC_TYPE.INVOICE_RECEIPT, DOC_TYPE.RECEIPT];
@@ -68,9 +90,12 @@ export interface MorningDoc {
 export interface MorningExpense {
   id: string;
   supplierName: string | null;
+  /** In shekels — a foreign-currency expense is converted at Morning's rate. */
   amount: number;
   currency: string;
   date: string;
+  /** False for an expense deleted in Morning; it must not reach the totals. */
+  active: boolean;
 }
 
 // ── Raw-payload helpers ───────────────────────────────────────────────────────
@@ -100,6 +125,24 @@ function asNumber(v: unknown): number | null {
 }
 
 /**
+ * Every total on the money screen is in shekels, so a foreign-currency row has
+ * to be converted before it is summed. Morning reports those twice — `amount` in
+ * the document's own currency and `amountLocal` in shekels (a live expense:
+ * $25 with amountLocal 73.38 at rate 2.935). Reading `amount` counted that as
+ * ₪25 and understated the month by two thirds. ILS rows are left untouched, so
+ * a missing or zeroed `amountLocal` can never damage a shekel figure.
+ */
+function inShekels(
+  o: Record<string, unknown>,
+  amount: number
+): { amount: number; currency: string } {
+  const currency = String(pick(o, ["currency"]) ?? "ILS");
+  if (currency === "ILS") return { amount, currency };
+  const local = asNumber(pick(o, ["amountLocal", "amountLocalCurrency"]));
+  return local !== null ? { amount: local, currency: "ILS" } : { amount, currency };
+}
+
+/**
  * Morning dates arrive as `YYYY-MM-DD`, as an ISO timestamp, or as a unix
  * epoch (seconds). Normalise to a calendar date so month bucketing is stable.
  */
@@ -117,9 +160,14 @@ export function toDateOnly(v: unknown): string | null {
   return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
 }
 
-/** Green Invoice document status: 0 open · 1 closed/paid · 2 partial · 3 cancelled. */
+/** Green Invoice document status: 0 open · 1 closed/paid · 2 partial, plus the
+ *  two halves of a void. Confirmed against the live books: document #80005
+ *  (status 3, −150, "ביטול קבלה 80004") is the cancelling document, and #80004
+ *  (status 4, +150) is the one it cancelled. Both halves are treated as void, so
+ *  a reversal nets to zero however many of them a query returns — dropping only
+ *  one half (the old behaviour) left the voided +150 counted as income. */
 const STATUS_PAID = 1;
-const STATUS_CANCELLED = 3;
+const VOID_STATUSES: readonly number[] = [3, 4];
 
 /**
  * Raw Morning document → our shape, or null if it lacks the fields that make it
@@ -138,6 +186,7 @@ export function normalizeDocument(raw: unknown): MorningDoc | null {
   const type = asNumber(pick(o, ["type", "documentType"])) ?? 0;
   const client = rec(o.client);
   const status = asNumber(pick(o, ["status", "documentStatus"]));
+  const money = inShekels(o, amount);
 
   // "Nothing left to collect" is the most reliable paid signal when present;
   // fall back to the status enum, then to types that settle on issue.
@@ -155,12 +204,12 @@ export function normalizeDocument(raw: unknown): MorningDoc | null {
     type,
     clientId: client ? String(pick(client, ["id", "clientId"]) ?? "") || null : null,
     clientName: client ? String(pick(client, ["name"]) ?? "") || null : null,
-    amount,
-    currency: String(pick(o, ["currency"]) ?? "ILS"),
+    amount: money.amount,
+    currency: money.currency,
     date,
     dueDate: toDateOnly(pick(o, ["dueDate", "paymentDueDate"])),
     paid,
-    cancelled: status === STATUS_CANCELLED || o.cancelled === true,
+    cancelled: (status !== null && VOID_STATUSES.includes(status)) || o.cancelled === true,
   };
 }
 
@@ -172,14 +221,18 @@ export function normalizeExpense(raw: unknown): MorningExpense | null {
   const date = toDateOnly(pick(o, ["date", "documentDate", "paymentDate"]));
   if (id === undefined || amount === null || !date) return null;
   const supplier = rec(o.supplier);
+  const money = inShekels(o, amount);
   return {
     id: String(id),
     supplierName: supplier
       ? String(pick(supplier, ["name"]) ?? "") || null
       : String(pick(o, ["supplierName", "name"]) ?? "") || null,
-    amount,
-    currency: String(pick(o, ["currency"]) ?? "ILS"),
+    amount: money.amount,
+    currency: money.currency,
     date,
+    // Morning keeps deleted expenses in the response with active=false. Absent
+    // means active — only an explicit false takes a row out of the totals.
+    active: o.active !== false,
   };
 }
 
@@ -233,12 +286,12 @@ export function summarizeByMonth(
   const income = new Map<string, number>();
   const expense = new Map<string, number>();
 
-  for (const d of docs) {
-    if (d.cancelled || !INCOME_TYPES.includes(d.type)) continue;
+  for (const d of incomeDocs(docs)) {
     const k = monthOf(d.date);
     income.set(k, (income.get(k) ?? 0) + d.amount);
   }
   for (const e of expenses) {
+    if (!e.active) continue;
     const k = monthOf(e.date);
     expense.set(k, (expense.get(k) ?? 0) + e.amount);
   }
@@ -257,7 +310,8 @@ function round2(n: number): number {
 // ── Per-client payment state ──────────────────────────────────────────────────
 
 export type PaymentState =
-  | "paid" // nothing open
+  | "paid" // nothing open, and this month's retainer is in
+  | "awaiting" // nothing open, but no payment recorded yet this month
   | "due" // open, nothing past its due date
   | "overdue" // at least one document past due
   | "no-contract" // no agreement recorded yet
@@ -279,6 +333,9 @@ export interface PaymentStatus {
   /** Whole days the oldest unpaid document is past due; 0 when nothing is late. */
   daysOverdue: number;
   openCount: number;
+  /** Date of the most recent money actually received, `YYYY-MM-DD`. */
+  lastPaidOn: string | null;
+  lastPaidAmount: number;
 }
 
 const EMPTY: Omit<PaymentStatus, "state"> = {
@@ -287,6 +344,8 @@ const EMPTY: Omit<PaymentStatus, "state"> = {
   oldestDueDate: null,
   daysOverdue: 0,
   openCount: 0,
+  lastPaidOn: null,
+  lastPaidAmount: 0,
 };
 
 export function daysBetween(from: string, to: string): number {
@@ -313,8 +372,31 @@ export function clientPaymentStatus(args: {
   if (!morningConfigured) return { state: "unknown", ...EMPTY };
   if (!contract.morningClientId) return { state: "unlinked", ...EMPTY };
 
+  // Money actually received, newest first — the only evidence that a retainer
+  // was honoured this month.
+  const received = incomeDocs(docs)
+    .filter((d) => d.amount > 0)
+    .sort((a, b) => b.date.localeCompare(a.date));
+  const last = received[0] ?? null;
+  const paidHistory = {
+    lastPaidOn: last?.date ?? null,
+    lastPaidAmount: last ? round2(last.amount) : 0,
+  };
+
   const open = openReceivables(docs);
-  if (open.length === 0) return { state: "paid", ...EMPTY };
+  if (open.length === 0) {
+    // A receipt-only business never carries an open invoice, so "nothing open"
+    // would read as "paid" forever — including for a client who has not paid me
+    // in months. For anyone on a monthly retainer the question is narrower: is
+    // this month's money in?
+    const onRetainer = contract.billingStatus === "active" && (contract.monthlyFee ?? 0) > 0;
+    const paidThisMonth = received.some((d) => monthOf(d.date) === monthOf(today));
+    return {
+      state: onRetainer && !paidThisMonth ? "awaiting" : "paid",
+      ...EMPTY,
+      ...paidHistory,
+    };
+  }
 
   const late = open.filter((d) => d.dueDate !== null && d.dueDate < today);
   const oldestDueDate = late.reduce<string | null>(
@@ -329,6 +411,7 @@ export function clientPaymentStatus(args: {
     oldestDueDate,
     daysOverdue: oldestDueDate ? Math.max(0, daysBetween(oldestDueDate, today)) : 0,
     openCount: open.length,
+    ...paidHistory,
   };
 }
 

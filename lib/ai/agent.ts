@@ -4,16 +4,32 @@
 // prompt: `approvedToolUseIds` is the only thing that can let a write run, and
 // the caller only puts an id in that set after the user clicked approve.
 import { env } from "../env";
+import { anthropicHeaders, thinkingFor } from "./anthropic";
 import { allTools, anthropicTools, executeTool, getTool, summarizeTool } from "./tools/registry";
 import type { Session } from "../auth";
 
-export const AGENT_MODEL = "claude-sonnet-5";
+/** The model in use. Reads the env so a swap needs no deploy. */
+export function agentModel(): string {
+  return env.aiModel();
+}
 const MAX_ITERATIONS = 8;
 
 // ── Anthropic wire types (only the parts we use) ─────────────────────────────
 export interface TextBlock {
   type: "text";
   text: string;
+}
+/** Extended-thinking output. It must be echoed back verbatim — signature and
+ *  all — in the assistant turn that precedes a tool result, or the API rejects
+ *  the next request. That is why it is a persisted block type and not dropped. */
+export interface ThinkingBlock {
+  type: "thinking";
+  thinking: string;
+  signature: string;
+}
+export interface RedactedThinkingBlock {
+  type: "redacted_thinking";
+  data: string;
 }
 export interface ToolUseBlock {
   type: "tool_use";
@@ -27,7 +43,12 @@ export interface ToolResultBlock {
   content: string;
   is_error?: boolean;
 }
-export type ContentBlock = TextBlock | ToolUseBlock | ToolResultBlock;
+export type ContentBlock =
+  | TextBlock
+  | ThinkingBlock
+  | RedactedThinkingBlock
+  | ToolUseBlock
+  | ToolResultBlock;
 
 export interface AgentMessage {
   role: "user" | "assistant";
@@ -55,22 +76,21 @@ async function* streamTurn(
   system: string,
   onDone: (t: StreamedTurn) => void
 ): AsyncGenerator<string> {
-  const key = env.anthropicKey();
-  if (!key) throw new Error("AI לא מוגדר (חסר ANTHROPIC_API_KEY)");
+  const { budget, maxTokens } = thinkingFor(env.aiEffort());
 
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
-    headers: {
-      "x-api-key": key,
-      "anthropic-version": "2023-06-01",
-      "content-type": "application/json",
-    },
+    headers: anthropicHeaders(),
     body: JSON.stringify({
-      model: AGENT_MODEL,
-      max_tokens: 4096,
+      model: agentModel(),
+      max_tokens: maxTokens,
       system,
       tools: anthropicTools(),
       messages: messages.map((m) => ({ role: m.role, content: m.content })),
+      // Thinking is what makes the difference between "ran a tool" and "worked
+      // out which tool answers the question" — the copilot reasons over live
+      // business state, so it is on unless effort is turned down to low.
+      ...(budget > 0 ? { thinking: { type: "enabled", budget_tokens: budget } } : {}),
       stream: true,
     }),
   });
@@ -112,6 +132,10 @@ async function* streamTurn(
           const cb = evt.content_block;
           if (cb?.type === "text") {
             blocks[idx] = { type: "text", text: "" };
+          } else if (cb?.type === "thinking") {
+            blocks[idx] = { type: "thinking", thinking: cb.thinking ?? "", signature: "" };
+          } else if (cb?.type === "redacted_thinking") {
+            blocks[idx] = { type: "redacted_thinking", data: cb.data ?? "" };
           } else if (cb?.type === "tool_use") {
             blocks[idx] = { type: "tool_use", id: cb.id, name: cb.name, input: {} };
             partialJson.set(idx, "");
@@ -124,6 +148,14 @@ async function* streamTurn(
             const block = blocks[idx];
             if (block?.type === "text") block.text += evt.delta.text;
             yield evt.delta.text as string;
+          } else if (evt.delta?.type === "thinking_delta") {
+            // Accumulated but never yielded: the reasoning is kept for the API's
+            // sake, not shown in the chat.
+            const block = blocks[idx];
+            if (block?.type === "thinking") block.thinking += evt.delta.thinking ?? "";
+          } else if (evt.delta?.type === "signature_delta") {
+            const block = blocks[idx];
+            if (block?.type === "thinking") block.signature += evt.delta.signature ?? "";
           } else if (evt.delta?.type === "input_json_delta") {
             partialJson.set(idx, (partialJson.get(idx) ?? "") + (evt.delta.partial_json ?? ""));
           }

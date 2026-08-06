@@ -5,7 +5,7 @@
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { fetchJson } from "@/lib/client";
-import { formatCurrency, timeAgo } from "@/lib/format";
+import { formatCurrency, formatDate, timeAgo } from "@/lib/format";
 import { Icon } from "@/components/icons";
 import {
   Badge,
@@ -96,11 +96,20 @@ function PaymentSection({ c }: { c: ClientCardView }) {
                 value={formatCurrency(c.contract?.monthlyFee ?? null, currency)}
               />
             </div>
-            {p.state === "overdue" && (
+            <p className="text-xs text-[var(--color-muted)] mt-3">
+              {p.lastPaidOn
+                ? `התקבל לאחרונה ${formatCurrency(p.lastPaidAmount, currency)} ב-${formatDate(p.lastPaidOn)}`
+                : "לא נרשם תשלום מהלקוח הזה ב-Morning"}
+              {p.state === "awaiting" && " · טרם שולם החודש"}
+            </p>
+            {(p.state === "overdue" || p.state === "awaiting") && (
               <button
                 onClick={() =>
                   askAbout(
-                    `${c.name} בפיגור תשלום של ${formatCurrency(p.overdueAmount, currency)} כבר ${p.daysOverdue} ימים. נסח לי הודעת תזכורת מנומסת ללקוח.`
+                    p.state === "overdue"
+                      ? `${c.name} בפיגור תשלום של ${formatCurrency(p.overdueAmount, currency)} כבר ${p.daysOverdue} ימים. נסח לי הודעת תזכורת מנומסת ללקוח.`
+                      : `${c.name} עדיין לא שילם את דמי התחזוקה החודשיים (${formatCurrency(c.contract?.monthlyFee ?? null, currency)}). ` +
+                        `התשלום האחרון שנרשם: ${p.lastPaidOn ? formatDate(p.lastPaidOn) : "אין"}. נסח לי הודעת תזכורת מנומסת.`
                   )
                 }
                 className="btn btn-ai btn-sm mt-3"

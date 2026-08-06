@@ -9,6 +9,9 @@ export interface PaymentStatusView {
   oldestDueDate: string | null;
   daysOverdue: number;
   openCount: number;
+  /** Last money actually received from this client, `YYYY-MM-DD`. */
+  lastPaidOn: string | null;
+  lastPaidAmount: number;
 }
 
 export interface ContractView {
@@ -59,6 +62,7 @@ export const HEALTH_VIEW: Record<string, { label: string; tone: Tone }> = {
 
 export const PAYMENT_VIEW: Record<string, { label: string; tone: Tone }> = {
   paid: { label: "משולם", tone: "ok" },
+  awaiting: { label: "טרם שולם החודש", tone: "warn" },
   due: { label: "פתוח", tone: "warn" },
   overdue: { label: "בפיגור", tone: "err" },
   "no-contract": { label: "אין הסכם", tone: "muted" },
@@ -86,6 +90,7 @@ export function urgencyRank(c: ClientCardView): number {
   if (c.health === "degraded") return 2;
   if (c.openAlertCount > 0) return 3;
   if (c.payment.state === "due") return 4;
-  if (c.contract === null) return 5;
-  return 6;
+  if (c.payment.state === "awaiting") return 5;
+  if (c.contract === null) return 6;
+  return 7;
 }
