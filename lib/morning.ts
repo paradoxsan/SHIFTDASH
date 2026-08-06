@@ -13,8 +13,7 @@ import {
   normalizeAll,
   normalizeDocument,
   normalizeExpense,
-  INCOME_TYPES,
-  DOC_TYPE,
+  FETCHED_DOC_TYPES,
   type MorningDoc,
   type MorningExpense,
 } from "./billing";
@@ -133,9 +132,9 @@ export async function listDocuments(fromDate: string, toDate: string): Promise<D
   const { rows, truncated } = await searchAll("/documents/search", {
     fromDate,
     toDate,
-    // Proformas are requested too: an unpaid חשבונית עסקה is money a client owes
-    // me, which is exactly what the overdue badge is about.
-    type: [...INCOME_TYPES, DOC_TYPE.PROFORMA],
+    // See FETCHED_DOC_TYPES — what counts as income is decided in lib/billing
+    // from the documents that came back, so the query must not pre-judge it.
+    type: [...FETCHED_DOC_TYPES],
   });
   const { items, skipped } = normalizeAll(rows, normalizeDocument);
   return { docs: items, skipped, truncated };

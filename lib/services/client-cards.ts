@@ -9,7 +9,7 @@ import { loadClients, type ClientDef } from "../registry";
 import { listBotIdentity } from "../control-plane";
 import { listBotHealth, listEvents } from "../events";
 import { listContractsBySlug, type Contract } from "../contracts";
-import { listDocuments, morningConfigured } from "../morning";
+import { listDocuments, listMorningClients, morningConfigured } from "../morning";
 import { clientPaymentStatus, type MorningDoc, type PaymentStatus } from "../billing";
 import { sortAlerts, toAlertView, type AlertView } from "../alerts";
 import { todayInIsrael } from "../reminders";
@@ -57,6 +57,30 @@ function groupByMorningClient(docs: MorningDoc[]): Map<string, MorningDoc[]> {
   return out;
 }
 
+function normalizeName(name: string | null): string {
+  return (name ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+/**
+ * Every Morning customer id that is really the same customer as `morningId`.
+ *
+ * Morning happily holds several records under one name — the live books have two
+ * "טי סנטר" and two "Br jewlery", with receipts split between them. A contract
+ * links to exactly ONE id, so matching on that id alone attributes half a
+ * client's payments to nobody and reports "טרם שולם החודש" for a client who
+ * paid. Same name ⇒ same customer, which is the assumption a human makes when
+ * looking at that list anyway.
+ */
+export function sameCustomerIds(morningId: string, nameById: Map<string, string>): Set<string> {
+  const ids = new Set([morningId]);
+  const name = normalizeName(nameById.get(morningId) ?? null);
+  if (!name) return ids;
+  for (const [id, other] of nameById) {
+    if (normalizeName(other) === name) ids.add(id);
+  }
+  return ids;
+}
+
 export interface PaymentStatuses {
   /** False when Morning is unconfigured or the call failed — the statuses are
    *  all "unknown" and callers must NOT treat that as "nothing is owed". */
@@ -81,11 +105,25 @@ export async function loadPaymentStatuses(): Promise<PaymentStatuses> {
   ]);
 
   let docsByClient = new Map<string, MorningDoc[]>();
+  const nameById = new Map<string, string>();
   let error: string | null = null;
   if (connected) {
     try {
-      const { docs } = await listDocuments(isoDaysAgo(LOOKBACK_DAYS), today);
+      const [{ docs }, morningClients] = await Promise.all([
+        listDocuments(isoDaysAgo(LOOKBACK_DAYS), today),
+        // Only used to spot duplicate customer records; a failure here must not
+        // cost us the payment statuses, so it degrades to id-only matching.
+        listMorningClients().catch(() => []),
+      ]);
       docsByClient = groupByMorningClient(docs);
+      for (const mc of morningClients) nameById.set(mc.id, mc.name);
+      // A document can name a customer Morning's client list does not (or no
+      // longer) carry — take the name from the document itself as well.
+      for (const d of docs) {
+        if (d.clientId && d.clientName && !nameById.has(d.clientId)) {
+          nameById.set(d.clientId, d.clientName);
+        }
+      }
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     }
@@ -96,9 +134,12 @@ export async function loadPaymentStatuses(): Promise<PaymentStatuses> {
   for (const c of clients) {
     const contract = contracts[c.id] ?? null;
     const morningId = contract?.morningClientId ?? null;
+    const docs = morningId
+      ? [...sameCustomerIds(morningId, nameById)].flatMap((id) => docsByClient.get(id) ?? [])
+      : [];
     bySlug[c.id] = clientPaymentStatus({
       contract,
-      docs: morningId ? docsByClient.get(morningId) ?? [] : [],
+      docs,
       today,
       morningConfigured: evaluated,
     });
@@ -147,6 +188,8 @@ export async function buildClientCards(): Promise<ClientCardsResult> {
         oldestDueDate: null,
         daysOverdue: 0,
         openCount: 0,
+        lastPaidOn: null,
+        lastPaidAmount: 0,
       },
     };
   });

@@ -31,6 +31,21 @@ export const INCOME_TYPES: readonly number[] = [
 const RECEIPT_INCOME_TYPES: readonly number[] = [DOC_TYPE.RECEIPT, DOC_TYPE.CREDIT_INVOICE];
 
 /**
+ * The document types worth pulling from Morning. Receipts are in the list even
+ * though they are usually settlements, because `incomeDocs` cannot decide
+ * anything about a document the query already filtered away — asking only for
+ * invoice types against receipt-only books returns zero rows and a ₪0 screen.
+ * Proformas are here because an unpaid חשבונית עסקה is money owed to me.
+ */
+export const FETCHED_DOC_TYPES: readonly number[] = [
+  DOC_TYPE.TAX_INVOICE,
+  DOC_TYPE.INVOICE_RECEIPT,
+  DOC_TYPE.CREDIT_INVOICE,
+  DOC_TYPE.PROFORMA,
+  DOC_TYPE.RECEIPT,
+];
+
+/**
  * The documents that represent income in this particular set.
  *
  * An עוסק פטור issues no חשבונית מס — a קבלה IS the income document, and Shift
