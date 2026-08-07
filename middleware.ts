@@ -18,6 +18,12 @@ export async function middleware(req: NextRequest) {
   // session cookie (Vercel Cron has no cookie).
   if (pathname.startsWith("/api/cron/")) return NextResponse.next();
 
+  // Client-facing monthly reports. Addressed by an HMAC token verified inside
+  // the route (lib/reports/token.ts) — these links are forwarded to clients who
+  // have no dashboard account, so a session redirect would break them. A token
+  // authorises exactly one client × one month; anything else 404s.
+  if (pathname.startsWith("/r/")) return NextResponse.next();
+
   const token = req.cookies.get(SESSION_COOKIE)?.value;
   const authed = await verifySessionToken(token);
   const isLogin = pathname === "/login";

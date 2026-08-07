@@ -39,3 +39,8 @@ docs/ARCHITECTURE.research.json
 
 .vercel
 .env*
+
+# generated monthly report HTML (business data — regenerate from /reports/<month>).
+# Leading slash matters: an unanchored "reports/" also swallows app/reports/ and
+# lib/reports/, which is where the report feature actually lives.
+/reports/
