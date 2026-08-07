@@ -117,44 +117,53 @@ function share(botOut: number, humanOut: number): number | null {
   return out === 0 ? null : (botOut / out) * 100;
 }
 
-async function payloadType(ref: string): Promise<string | null> {
-  const rows = await runSql<{ data_type: string }>(
-    ref,
-    `select data_type from information_schema.columns
-      where table_schema='public' and table_name='inbox' and column_name='payload' limit 1`
-  );
-  return rows[0]?.data_type ?? null;
-}
-
-async function volumeFor(ref: string, je: string, w: Window): Promise<Volume> {
+/**
+ * BOTH windows in one round trip. The first cut ran a query per window per bot
+ * and the whole report took 47 s in production — long enough for Railway's edge
+ * proxy to give up with "Application failed to respond". Every query below is
+ * written to cover the current AND previous window in a single pass; combined
+ * with parallel bots and the report cache this lands in single-digit seconds.
+ */
+async function volumesFor(ref: string, je: string, w: Window, pw: Window): Promise<[Volume, Volume]> {
   const rows = await runSql<Record<string, unknown>>(
     ref,
     `with b as (
-       select chat_id,
+       select chat_id, created_at,
          (${je}->'messages'->0->>'from_me')='true' as from_me,
          ${je}->'messages'->0->>'source' as source
        from inbox
-       where created_at >= '${w.from}' and created_at < '${w.to}'
+       where created_at >= '${pw.from}' and created_at < '${w.to}'
          and chat_id not like '%@g.us'
+     ), t as (
+       select *, (created_at >= '${w.from}') as cur from b
      )
-     select count(*) as msgs,
-            count(*) filter (where not from_me) as inbound,
-            count(*) filter (where from_me and source='api') as bot_out,
-            count(*) filter (where from_me and source in ('mobile','web')) as human_out,
-            count(distinct chat_id) as chats
-     from b`
+     select
+       count(*) filter (where cur) as msgs,
+       count(*) filter (where cur and not from_me) as inbound,
+       count(*) filter (where cur and from_me and source='api') as bot_out,
+       count(*) filter (where cur and from_me and source in ('mobile','web')) as human_out,
+       count(distinct chat_id) filter (where cur) as chats,
+       count(*) filter (where not cur) as p_msgs,
+       count(*) filter (where not cur and not from_me) as p_inbound,
+       count(*) filter (where not cur and from_me and source='api') as p_bot_out,
+       count(*) filter (where not cur and from_me and source in ('mobile','web')) as p_human_out,
+       count(distinct chat_id) filter (where not cur) as p_chats
+     from t`
   );
   const r = rows[0] ?? {};
-  const botOut = num(r.bot_out);
-  const humanOut = num(r.human_out);
-  return {
-    msgs: num(r.msgs),
-    inbound: num(r.inbound),
-    botOut,
-    humanOut,
-    chats: num(r.chats),
-    botShare: share(botOut, humanOut),
+  const mk = (p: string): Volume => {
+    const botOut = num(r[`${p}bot_out`]);
+    const humanOut = num(r[`${p}human_out`]);
+    return {
+      msgs: num(r[`${p}msgs`]),
+      inbound: num(r[`${p}inbound`]),
+      botOut,
+      humanOut,
+      chats: num(r[`${p}chats`]),
+      botShare: share(botOut, humanOut),
+    };
   };
+  return [mk(""), mk("p_")];
 }
 
 async function dailyFor(ref: string, je: string, w: Window): Promise<DailyPoint[]> {
@@ -182,22 +191,28 @@ async function dailyFor(ref: string, je: string, w: Window): Promise<DailyPoint[
   }));
 }
 
-async function ordersFor(ref: string, w: Window): Promise<OrderStats | null> {
+async function ordersFor(ref: string, w: Window, pw: Window): Promise<[OrderStats, OrderStats]> {
   // `superseded` rows are an order that was replaced by a later revision — counting
   // them would double-count the same job. `paid` is NOT a collection signal: auto
   // paid-marking was deliberately disabled, so this is order VALUE, not cash in.
   const rows = await runSql<Record<string, unknown>>(
     ref,
-    `select count(*) as n, coalesce(sum(total),0) as revenue
-       from orders
-      where created_at >= '${w.from}' and created_at < '${w.to}'
-        and status in ('open','paid')`
+    `select
+       count(*) filter (where created_at >= '${w.from}') as n,
+       coalesce(sum(total) filter (where created_at >= '${w.from}'),0) as revenue,
+       count(*) filter (where created_at < '${w.from}') as p_n,
+       coalesce(sum(total) filter (where created_at < '${w.from}'),0) as p_revenue
+     from orders
+     where created_at >= '${pw.from}' and created_at < '${w.to}'
+       and status in ('open','paid')`
   );
-  const r = rows[0];
-  if (!r) return null;
-  const count = num(r.n);
-  const revenue = num(r.revenue);
-  return { count, revenue, avg: count ? Math.round(revenue / count) : 0 };
+  const r = rows[0] ?? {};
+  const mk = (p: string): OrderStats => {
+    const count = num(r[`${p}n`]);
+    const revenue = num(r[`${p}revenue`]);
+    return { count, revenue, avg: count ? Math.round(revenue / count) : 0 };
+  };
+  return [mk(""), mk("p_")];
 }
 
 async function escalationsFor(
@@ -220,63 +235,61 @@ async function escalationsFor(
   return rows.map((r) => ({ reason: String(r.reason), n: num(r.n) }));
 }
 
-async function countIn(
+/** Every optional per-bot counter in ONE query — six round trips became one. */
+const EXTRA_COUNTS: { label: string; table: string; col: string }[] = [
+  { label: "קבצי גרפיקה שהתקבלו", table: "graphics", col: "created_at" },
+  { label: "השתלטויות אנושיות", table: "human_mode", col: "updated_at" },
+  { label: "טיוטות הזמנה", table: "order_drafts", col: "created_at" },
+  { label: "לידים חדשים", table: "leads", col: "created_at" },
+  { label: 'בקשות "תחזרו אליי"', table: "callbacks", col: "created_at" },
+  { label: "לידי קמפיין (CTWA)", table: "campaign_contacts", col: "first_seen" },
+];
+
+async function extrasFor(
   ref: string,
-  table: string,
-  col: string,
+  schema: { tableNames: string[] },
   w: Window
-): Promise<number | null> {
+): Promise<{ label: string; value: string }[]> {
+  const present = EXTRA_COUNTS.filter((e) => schema.tableNames.includes(e.table));
+  if (!present.length) return [];
+  const selects = present.map(
+    (e, i) =>
+      `(select count(*) from ${e.table} where ${e.col} >= '${w.from}' and ${e.col} < '${w.to}') as c${i}`
+  );
   try {
-    const rows = await runSql<{ n: unknown }>(
-      ref,
-      `select count(*) as n from ${table} where ${col} >= '${w.from}' and ${col} < '${w.to}'`
-    );
-    return num(rows[0]?.n);
+    const rows = await runSql<Record<string, unknown>>(ref, `select ${selects.join(", ")}`);
+    const r = rows[0] ?? {};
+    return present.map((e, i) => ({ label: e.label, value: num(r[`c${i}`]).toLocaleString("en-US") }));
   } catch {
-    return null;
+    return [];
   }
 }
 
+const emptyBot = (c: ClientDef, notes: string[]): BotMonthly => ({
+  id: c.id, name: c.name, accent: c.accent,
+  volume: { msgs: 0, inbound: 0, botOut: 0, humanOut: 0, chats: 0, botShare: null },
+  prevVolume: null, orders: null, prevOrders: null,
+  escalations: [], escalationTotal: 0, daily: [], extras: [], notes,
+});
+
 async function botMonthly(c: ClientDef, w: Window, pw: Window): Promise<BotMonthly> {
   const notes: string[] = [];
-  const pt = await payloadType(c.supabaseRef);
-  if (!pt) {
-    return {
-      id: c.id, name: c.name, accent: c.accent,
-      volume: { msgs: 0, inbound: 0, botOut: 0, humanOut: 0, chats: 0, botShare: null },
-      prevVolume: null, orders: null, prevOrders: null,
-      escalations: [], escalationTotal: 0, daily: [], extras: [],
-      notes: ["לא נמצאה טבלת inbox בפרויקט — אין נתוני תנועה."],
-    };
-  }
-  const je = jsonExpr(pt);
+  // introspect is cached for 5 min and already carries column types, so the
+  // payload shape comes free instead of costing its own round trip.
   const schema = await introspect(c.supabaseRef);
-
-  const [volume, prevVolume, daily] = await Promise.all([
-    volumeFor(c.supabaseRef, je, w),
-    volumeFor(c.supabaseRef, je, pw),
-    dailyFor(c.supabaseRef, je, w),
-  ]);
-
+  const payloadCol = schema.tables["inbox"]?.find((col) => col.name === "payload");
+  if (!payloadCol) return emptyBot(c, ["לא נמצאה טבלת inbox בפרויקט — אין נתוני תנועה."]);
+  const je = jsonExpr(payloadCol.type);
   const hasOrders = hasTable(schema, "orders");
-  const [orders, prevOrders, escalations] = await Promise.all([
-    hasOrders ? ordersFor(c.supabaseRef, w) : Promise.resolve(null),
-    hasOrders ? ordersFor(c.supabaseRef, pw) : Promise.resolve(null),
-    escalationsFor(c.supabaseRef, je, w),
-  ]);
 
-  const extras: { label: string; value: string; note?: string }[] = [];
-  const add = async (label: string, table: string, col: string, note?: string) => {
-    if (!hasTable(schema, table)) return;
-    const n = await countIn(c.supabaseRef, table, col, w);
-    if (n !== null) extras.push({ label, value: n.toLocaleString("en-US"), note });
-  };
-  await add("קבצי גרפיקה שהתקבלו", "graphics", "created_at");
-  await add("השתלטויות אנושיות", "human_mode", "updated_at");
-  await add("טיוטות הזמנה", "order_drafts", "created_at");
-  await add("לידים חדשים", "leads", "created_at");
-  await add('בקשות "תחזרו אליי"', "callbacks", "created_at");
-  await add("לידי קמפיין (CTWA)", "campaign_contacts", "first_seen");
+  const [volumes, daily, orderPair, escalations, extras] = await Promise.all([
+    volumesFor(c.supabaseRef, je, w, pw),
+    dailyFor(c.supabaseRef, je, w),
+    hasOrders ? ordersFor(c.supabaseRef, w, pw) : Promise.resolve(null),
+    escalationsFor(c.supabaseRef, je, w),
+    extrasFor(c.supabaseRef, schema, w),
+  ]);
+  const [volume, prevVolume] = volumes;
 
   // Outbound logging is not universal. If a bot logs no outbound at all, say so
   // rather than letting a reader infer the bot was silent.
@@ -293,35 +306,54 @@ async function botMonthly(c: ClientDef, w: Window, pw: Window): Promise<BotMonth
 
   return {
     id: c.id, name: c.name, accent: c.accent,
-    volume, prevVolume, orders, prevOrders,
+    volume, prevVolume,
+    orders: orderPair?.[0] ?? null,
+    prevOrders: orderPair?.[1] ?? null,
     escalations,
     escalationTotal: escalations.reduce((a, e) => a + e.n, 0),
     daily, extras, notes,
   };
 }
 
+// ── report cache ─────────────────────────────────────────────────────────────
+// A COMPLETED calendar month is immutable — its numbers can never change again —
+// so it is cached hard. The in-progress month still moves, so it gets a short
+// TTL. Without this every page view re-ran the whole gather and the client link
+// timed out behind Railway's edge proxy.
+const CACHE = new Map<string, { at: number; report: MonthlyReport }>();
+const COMPLETE_TTL = 12 * 60 * 60 * 1000;
+const LIVE_TTL = 5 * 60 * 1000;
+
+function ttlFor(month: string): number {
+  return month <= lastCompleteMonth() ? COMPLETE_TTL : LIVE_TTL;
+}
+
 /** Build the full report for a calendar month (default: the last complete one). */
-export async function buildMonthlyReport(month = lastCompleteMonth()): Promise<MonthlyReport> {
+export async function buildMonthlyReport(
+  month = lastCompleteMonth(),
+  opts: { fresh?: boolean } = {}
+): Promise<MonthlyReport> {
+  const hit = CACHE.get(month);
+  if (!opts.fresh && hit && Date.now() - hit.at < ttlFor(month)) return hit.report;
+
   const window = monthWindow(month);
   const prevWindow = monthWindow(prevMonth(month));
   const clients = getClients().filter((c) => c.workspace === "clients");
-  const bots: BotMonthly[] = [];
-  for (const c of clients) {
-    // Sequential on purpose: the Management SQL endpoint is rate-limited, and a
-    // failed tenant must not take the whole report down.
-    try {
-      bots.push(await botMonthly(c, window, prevWindow));
-    } catch (e) {
-      bots.push({
-        id: c.id, name: c.name, accent: c.accent,
-        volume: { msgs: 0, inbound: 0, botOut: 0, humanOut: 0, chats: 0, botShare: null },
-        prevVolume: null, orders: null, prevOrders: null,
-        escalations: [], escalationTotal: 0, daily: [], extras: [],
-        notes: [`שליפת הנתונים נכשלה: ${e instanceof Error ? e.message : String(e)}`],
-      });
-    }
-  }
-  return {
+
+  // Parallel across bots: two tenants is well inside the Management API's
+  // limits, and serialising them was most of the 47 s.
+  const bots = await Promise.all(
+    clients.map(async (c) => {
+      try {
+        return await botMonthly(c, window, prevWindow);
+      } catch (e) {
+        // One tenant failing must never take the whole report down.
+        return emptyBot(c, [`שליפת הנתונים נכשלה: ${e instanceof Error ? e.message : String(e)}`]);
+      }
+    })
+  );
+
+  const report: MonthlyReport = {
     month,
     label: monthLabel(month),
     window,
@@ -329,4 +361,7 @@ export async function buildMonthlyReport(month = lastCompleteMonth()): Promise<M
     generatedAt: new Date().toISOString(),
     bots,
   };
+  CACHE.set(month, { at: Date.now(), report });
+  if (CACHE.size > 24) CACHE.delete([...CACHE.keys()][0]);
+  return report;
 }
