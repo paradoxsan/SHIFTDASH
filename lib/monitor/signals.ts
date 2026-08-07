@@ -149,11 +149,21 @@ export async function gatherSignals(
       );
       queueFailed = Number(f[0]?.n ?? 0);
       if (hasCreatedAt) {
-        const a = await runSql<{ age: number | null }>(
+        // "Oldest row still in 'new'" only means a BACKLOG if this bot actually
+        // drains the queue. T-CENTER's inbox is an append-only log: 135k rows,
+        // every one of them 'new', none with processed_at — its n8n flow reads
+        // the webhook and never writes the status back. Reading age-of-oldest-new
+        // there yields "stuck for 47 days" forever, which is how QUEUE_STUCK sat
+        // open and meaningless while real alerts had to compete with it.
+        // So: prove the column is a work queue before believing it.
+        const a = await runSql<{ age: number | null; drained: number }>(
           client.supabaseRef,
-          `select extract(epoch from (now() - min(created_at))) / 60 as age from public.inbox where status = 'new'`
+          `select extract(epoch from (now() - min(created_at) filter (where status = 'new'))) / 60 as age,
+                  count(*) filter (where status <> 'new')::int as drained
+             from public.inbox`
         );
-        oldestNewAgeMin = a[0]?.age != null ? Math.floor(Number(a[0].age)) : null;
+        const drained = Number(a[0]?.drained ?? 0);
+        oldestNewAgeMin = drained > 0 && a[0]?.age != null ? Math.floor(Number(a[0].age)) : null;
       }
     }
 
