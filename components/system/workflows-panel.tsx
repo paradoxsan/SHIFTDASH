@@ -5,7 +5,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { fetchJson, postJson } from "@/lib/client";
 import type { N8nWorkflow } from "@/lib/types";
-import { PageHeader, Spinner, ErrorBanner, EmptyState } from "@/components/ui";
+import { Spinner, ErrorBanner, EmptyState } from "@/components/ui";
 import { useClientCtx } from "@/components/client-context";
 import { timeAgo } from "@/lib/format";
 
@@ -35,11 +35,13 @@ function Toggle({
   );
 }
 
-export default function WorkflowsPage() {
+/** n8n workflows for the active client, with the on/off switch.
+ *  Header-less on purpose — the machine room owns the page header. */
+export function WorkflowsPanel() {
   const qc = useQueryClient();
   const { activeClient } = useClientCtx();
   const clientId = activeClient?.id;
-  const { data, isLoading, error, isFetching } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ["workflows", clientId],
     queryFn: () =>
       fetchJson<{ workflows: N8nWorkflow[] }>(
@@ -68,17 +70,13 @@ export default function WorkflowsPage() {
   const activeCount = workflows.filter((w) => w.active).length;
 
   return (
-    <div className="p-4 md:p-6 max-w-3xl mx-auto">
-      <PageHeader
-        title="אוטומציות"
-        subtitle={`${activeClient?.name ?? "כל הבוטים"} · ${
-          workflows.length ? `${activeCount} פעילות מתוך ${workflows.length}` : "n8n"
-        }`}
-        live={isFetching}
-      />
-
+    <div>
       {(error || mutErr) && <ErrorBanner message={(error as Error)?.message || mutErr!} />}
-
+      {!isLoading && workflows.length > 0 && (
+        <p className="text-xs text-[var(--color-muted)] mb-3">
+          {activeCount} פעילות מתוך {workflows.length}
+        </p>
+      )}
       {isLoading ? (
         <Spinner />
       ) : workflows.length === 0 ? (

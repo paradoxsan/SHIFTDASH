@@ -32,7 +32,7 @@ export default function WorkflowDetailPage() {
   return (
     <div className="p-4 md:p-6 max-w-3xl mx-auto">
       <Link
-        href="/workflows"
+        href="/system"
         className="inline-flex items-center gap-1 text-sm text-[var(--color-muted)] mb-3"
       >
         <Icon name="back" size={16} /> חזרה לאוטומציות

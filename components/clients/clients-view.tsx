@@ -153,6 +153,11 @@ export function ClientsView() {
             : "טוען…"
         }
         live={isFetching}
+        right={
+          <Link href="/reports" className="chip" title="דוחות חודשיים לכל הבוטים">
+            דוחות
+          </Link>
+        }
       />
 
       {error && <ErrorBanner message={error instanceof Error ? error.message : String(error)} />}

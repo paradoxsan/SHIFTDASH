@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchJson } from "@/lib/client";
 import type { N8nExecution, ExecStatus } from "@/lib/types";
-import { PageHeader, Spinner, ErrorBanner, EmptyState } from "@/components/ui";
+import { Spinner, ErrorBanner, EmptyState } from "@/components/ui";
 import { useClientCtx } from "@/components/client-context";
 import { ErrorDrilldown } from "@/components/executions/error-drilldown";
 import { timeAgo, formatDuration } from "@/lib/format";
@@ -19,12 +19,15 @@ const STATUS_META: Record<ExecStatus, { label: string; color: string }> = {
 
 type Filter = "all" | "success" | "error";
 
-export default function ExecutionsPage() {
+/** Live n8n execution feed with the failed-run drill-down.
+ *  Header-less — the machine room owns the page header. */
+export function ExecutionsPanel() {
   const [filter, setFilter] = useState<Filter>("all");
   const [drillId, setDrillId] = useState<string | null>(null);
   const { activeClient } = useClientCtx();
   const clientId = activeClient?.id;
-  const { data, isLoading, error, isFetching } = useQuery({
+
+  const { data, isLoading, error } = useQuery({
     queryKey: ["executions", filter, clientId],
     queryFn: () =>
       fetchJson<{ executions: N8nExecution[] }>(
@@ -43,13 +46,7 @@ export default function ExecutionsPage() {
   ];
 
   return (
-    <div className="p-4 md:p-6 max-w-3xl mx-auto">
-      <PageHeader
-        title="ריצות"
-        subtitle={`${activeClient?.name ?? "כל הבוטים"} · executions בזמן אמת`}
-        live={isFetching}
-      />
-
+    <div>
       <div className="flex gap-2 mb-4">
         {filters.map((f) => (
           <button

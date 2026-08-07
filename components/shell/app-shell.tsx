@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
 import { NAV, isActiveHref } from "./nav";
+import { ClientSwitcher } from "./client-switcher";
 
 function Brand() {
   return (
@@ -37,7 +38,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Brand />
         </div>
 
-        <nav className="flex flex-col gap-0.5 mt-5">
+        <div className="mt-4 px-1">
+          <ClientSwitcher />
+        </div>
+
+        <nav className="flex flex-col gap-0.5 mt-4">
           {NAV.map((it) => {
             const on = isActiveHref(pathname, it.href);
             return (
@@ -58,13 +63,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </nav>
 
         <div className="mt-auto pt-3 space-y-0.5">
-          <Link
-            href="/ops"
-            className="flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold text-[var(--color-faint)] hover:bg-[var(--color-surface)]"
-          >
-            <Icon name="back" size={14} />
-            ממשק ישן
-          </Link>
           <button
             onClick={logout}
             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-[var(--color-muted)] hover:bg-[var(--color-surface)]"
@@ -78,9 +76,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* Mobile top bar */}
       <header className="md:hidden sticky top-0 z-30 flex items-center justify-between px-4 h-14 border-b border-[var(--color-border)] bg-[color-mix(in_srgb,var(--color-bg)_88%,transparent)] backdrop-blur">
         <Brand />
-        <button onClick={logout} className="text-[var(--color-muted)] p-2" aria-label="יציאה">
-          <Icon name="logout" size={18} />
-        </button>
+        <div className="flex items-center gap-2 min-w-0 max-w-[45%]">
+          <ClientSwitcher compact />
+          <button
+            onClick={logout}
+            className="text-[var(--color-muted)] p-2 shrink-0"
+            aria-label="יציאה"
+          >
+            <Icon name="logout" size={18} />
+          </button>
+        </div>
       </header>
 
       <main className="flex-1 min-w-0 pb-24 md:pb-6">{children}</main>
