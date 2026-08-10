@@ -29,6 +29,18 @@ create table if not exists public.followup_log (
 create index if not exists idx_followup_log_chat on public.followup_log(chat_id, sent_at);
 alter table public.followup_log enable row level security;
 
+-- Single-row config. started_at is the go-live cutoff: only orders created at
+-- or after this moment are ever eligible, so switching the feature on does NOT
+-- blast the historical backlog of stalled orders — it applies to NEW orders
+-- only ("רק על שיחות חדשות"). Seeded to now() on first apply and never reset.
+create table if not exists public.followup_config (
+  id         integer primary key default 1,
+  started_at timestamptz not null default now(),
+  constraint followup_config_singleton check (id = 1)
+);
+insert into public.followup_config (id) values (1) on conflict (id) do nothing;
+alter table public.followup_config enable row level security;
+
 -- ---------------------------------------------------------------------------
 -- tc_followup_due: rows that are eligible AND timing-due RIGHT NOW.
 -- n8n selects from this on an hourly cron, applies the business-hours window,
@@ -38,7 +50,8 @@ alter table public.followup_log enable row level security;
 create or replace view public.tc_followup_due as
 with latest_order as (
   select distinct on (chat_id)
-         chat_id, id as order_id, status, order_snapshot, total, invoice_name
+         chat_id, id as order_id, status, order_snapshot, total, invoice_name,
+         created_at as order_at
   from public.orders
   order by chat_id, created_at desc
 ),
@@ -66,6 +79,7 @@ cand as (
     coalesce(nullif(lo.order_snapshot->>'desc',''),
              nullif(lo.order_snapshot->>'product',''),
              'ההזמנה שלך')                                           as item,
+    lo.total,
     coalesce(cm.order_count, 0) as order_count,
     coalesce(fu.sent, 0)        as sent,
     case
@@ -79,6 +93,7 @@ cand as (
   left join public.customer_memory cm on cm.chat_id = lo.chat_id
   left join fu on fu.chat_id = lo.chat_id
   where lo.status = 'open'                                    -- rep/system hasn't closed or cancelled it
+    and lo.order_at >= (select started_at from public.followup_config where id = 1)  -- new orders only
     and coalesce(fu.sent,0) < 3                               -- max 3 touches
     and m.last_out_at >= coalesce(m.last_user_at, 'epoch')    -- WE spoke last (nudge segment)
     and coalesce(m.said_paid, false)          = false         -- customer never said they paid
@@ -106,39 +121,3 @@ select
   end as message
 from cand
 where next_step > 0;
-
--- ---------------------------------------------------------------------------
--- tc_followup_unanswered: the OTHER segment. Open order, but the CUSTOMER
--- spoke last and nobody replied. This is us dropping the ball, not the
--- customer stalling, so it is NOT auto-nudged. Surface it to the team to
--- answer by hand. Same paid/pickup guards apply.
--- ---------------------------------------------------------------------------
-create or replace view public.tc_followup_unanswered as
-with latest_order as (
-  select distinct on (chat_id)
-         chat_id, id as order_id, status, invoice_name
-  from public.orders
-  order by chat_id, created_at desc
-),
-msg as (
-  select chat_id,
-    max(created_at) filter (where role in ('bot','agent')) as last_out_at,
-    max(created_at) filter (where role = 'user')           as last_user_at,
-    max(created_at) filter (where role = 'user')           as _u,
-    bool_or(role='user' and text ~ '(שילמתי|שולם|העברתי|העברנו|שילמנו|ביצעתי תשלום|בוצע)') as said_paid,
-    bool_or(role='user' and text ~ '(מתי.*לקחת|מתי.*מוכן|לאיסוף|לבוא לקחת)')              as asked_pickup
-  from public.chat_messages
-  group by chat_id
-)
-select
-  lo.chat_id, lo.order_id,
-  coalesce(nullif(cm.display_name,''), nullif(lo.invoice_name,'')) as name,
-  m.last_user_at
-from latest_order lo
-join msg m on m.chat_id = lo.chat_id
-left join public.customer_memory cm on cm.chat_id = lo.chat_id
-where lo.status = 'open'
-  and m.last_user_at > coalesce(m.last_out_at, 'epoch')       -- customer spoke last
-  and coalesce(m.said_paid, false)    = false
-  and coalesce(m.asked_pickup, false) = false
-order by m.last_user_at desc;

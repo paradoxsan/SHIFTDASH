@@ -1,0 +1,104 @@
+{
+  "name": "T-CENTER Follow-up (stalled orders)",
+  "__comment": "Live as n8n workflow oZCmDGMheecgdc2D. Hourly cron, gated to business hours (Asia/Jerusalem), reads the tc_followup_due view (all guards live in the view + migration 0002_followup.sql), sends via WHAPI, logs to followup_log. Credential IDs are the live T-CENTER bot's; swap when provisioning a new client.",
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Jerusalem",
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all"
+  },
+  "nodes": [
+    {
+      "id": "sched-0001",
+      "name": "Every hour",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-1200, 400],
+      "parameters": { "rule": { "interval": [ { "field": "hours", "hoursInterval": 1 } ] } }
+    },
+    {
+      "id": "gate-0002",
+      "name": "Business Hours Gate (IL)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-980, 400],
+      "parameters": {
+        "jsCode": "// Only run inside T-CENTER business hours (Asia/Jerusalem).\n// Sun-Thu 08:30-16:30, Fri 08:30-14:00, Sat closed.\nconst now = $now.setZone('Asia/Jerusalem');\nconst dow = now.weekday; // Luxon: Mon=1 .. Sun=7\nconst mins = now.hour * 60 + now.minute;\nconst open = 8 * 60 + 30;\nlet ok = false;\nif (dow >= 1 && dow <= 4) ok = mins >= open && mins <= (16 * 60 + 30); // Mon-Thu\nelse if (dow === 7) ok = mins >= open && mins <= (16 * 60 + 30);       // Sun\nelse if (dow === 5) ok = mins >= open && mins <= (14 * 60);            // Fri\n// Sat (6) closed\nif (!ok) return [];\nreturn items;"
+      }
+    },
+    {
+      "id": "fetch-0003",
+      "name": "Fetch Due",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [-760, 400],
+      "parameters": {
+        "method": "GET",
+        "url": "https://xrvrjcnxogplmoybppay.supabase.co/rest/v1/tc_followup_due",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendQuery": true,
+        "queryParameters": { "parameters": [ { "name": "select", "value": "*" } ] },
+        "options": {}
+      },
+      "credentials": { "supabaseApi": { "id": "rKqZ7xeWEdslSGJR", "name": "Supabase account" } },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "rows-0004",
+      "name": "Rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-540, 400],
+      "parameters": {
+        "jsCode": "// Keep only real due rows (guards against an empty-body item).\nreturn items.filter(i => i.json && i.json.chat_id && i.json.message);"
+      }
+    },
+    {
+      "id": "send-0005",
+      "name": "Send WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [-320, 400],
+      "parameters": {
+        "method": "POST",
+        "url": "https://gate.whapi.cloud/messages/text",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { to: $json.chat_id, body: $json.message, typing_time: 2 } }}",
+        "options": {}
+      },
+      "credentials": { "httpHeaderAuth": { "id": "F47Okhzog5sMGU7d", "name": "Header Auth account 2" } }
+    },
+    {
+      "id": "log-0006",
+      "name": "Log Sent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [-100, 400],
+      "parameters": {
+        "method": "POST",
+        "url": "https://xrvrjcnxogplmoybppay.supabase.co/rest/v1/followup_log",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [ { "name": "Content-Type", "value": "application/json" }, { "name": "Prefer", "value": "return=minimal" } ] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { chat_id: $('Rows').item.json.chat_id, order_id: $('Rows').item.json.order_id, step: $('Rows').item.json.step, message: $('Rows').item.json.message } }}",
+        "options": {}
+      },
+      "credentials": { "supabaseApi": { "id": "rKqZ7xeWEdslSGJR", "name": "Supabase account" } },
+      "retryOnFail": true
+    }
+  ],
+  "connections": {
+    "Every hour": { "main": [ [ { "node": "Business Hours Gate (IL)", "type": "main", "index": 0 } ] ] },
+    "Business Hours Gate (IL)": { "main": [ [ { "node": "Fetch Due", "type": "main", "index": 0 } ] ] },
+    "Fetch Due": { "main": [ [ { "node": "Rows", "type": "main", "index": 0 } ] ] },
+    "Rows": { "main": [ [ { "node": "Send WhatsApp", "type": "main", "index": 0 } ] ] },
+    "Send WhatsApp": { "main": [ [ { "node": "Log Sent", "type": "main", "index": 0 } ] ] }
+  }
+}
