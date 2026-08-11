@@ -5,16 +5,26 @@ import { Icon } from "@/components/icons";
 import { useCopilot } from "./copilot-context";
 import { Message } from "./message";
 import { ApprovalCard } from "./approval-card";
+import { AgentPicker } from "./agent-picker";
 
-const SUGGESTIONS = [
+const AGENCY_SUGGESTIONS = [
   "מה שבור עכשיו?",
   "איזה בוט נפל בשבוע האחרון?",
   "אילו לידים צריכים מעקב היום?",
   "תראה לי את השגיאות האחרונות ב-n8n",
 ];
 
+// A client agent is opened to debug that client, so its openers start from the
+// bot rather than from the portfolio.
+const CLIENT_SUGGESTIONS = [
+  "מה מצב הבוט עכשיו?",
+  "הבוט לא עונה — תבדוק למה",
+  "מה נשבר כאן בעבר?",
+  "תראה לי את הריצות שנכשלו היום",
+];
+
 export function CopilotDock() {
-  const { open, setOpen, items, busy, send, reset } = useCopilot();
+  const { open, setOpen, items, busy, agent, send, reset } = useCopilot();
   const [draft, setDraft] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -63,6 +73,7 @@ export function CopilotDock() {
                 מחובר ל-n8n, Supabase, וואטסאפ ולידים
               </div>
             </div>
+            <AgentPicker />
           </div>
           <div className="flex items-center gap-1">
             {items.length > 0 && (
@@ -80,11 +91,12 @@ export function CopilotDock() {
           {items.length === 0 ? (
             <div className="pt-6">
               <p className="text-sm text-[var(--color-muted)] mb-3">
-                שאל אותי על הבוטים, הלקוחות או הלידים. אני יכול גם לבצע פעולות — כל פעולה תוצג לך
-                לאישור לפני שהיא רצה.
+                {agent
+                  ? "אני הסוכן של הלקוח הזה — אני מכיר את הבוט שלו ואת מה שכבר נשבר כאן. כל פעולה שמשנה מצב תוצג לך לאישור לפני שהיא רצה."
+                  : "שאל אותי על הבוטים, הלקוחות או הלידים. אני יכול גם לבצע פעולות — כל פעולה תוצג לך לאישור לפני שהיא רצה."}
               </p>
               <div className="flex flex-col gap-1.5">
-                {SUGGESTIONS.map((s) => (
+                {(agent ? CLIENT_SUGGESTIONS : AGENCY_SUGGESTIONS).map((s) => (
                   <button
                     key={s}
                     onClick={() => void send(s)}

@@ -19,6 +19,7 @@ import {
 } from "@/components/ui";
 import { useCopilot } from "@/components/copilot/copilot-context";
 import { ContractForm } from "./contract-form";
+import { ClientDossier } from "./client-dossier";
 import {
   BILLING_STATUS_LABEL,
   healthView,
@@ -27,7 +28,9 @@ import {
   type ClientCardView,
 } from "./shared";
 
-function AlertItem({ a }: { a: AlertLike }) {
+// Every "ask Claude" on a client page routes to THAT client's agent, not the
+// agency copilot — the whole point is that it opens already knowing the bot.
+function AlertItem({ a, client }: { a: AlertLike; client: string }) {
   const { askAbout } = useCopilot();
   return (
     <Card tone={a.tone} className="p-3">
@@ -38,7 +41,7 @@ function AlertItem({ a }: { a: AlertLike }) {
         <div className="min-w-0 flex-1">
           <div className="font-bold text-sm">{a.title}</div>
           <p className="text-xs text-[var(--color-muted)] mt-1 break-words">{a.detail}</p>
-          <button onClick={() => askAbout(a.askPrompt)} className="btn btn-sm mt-2">
+          <button onClick={() => askAbout(a.askPrompt, client)} className="btn btn-sm mt-2">
             <Icon name="ai" size={12} />
             שאל את Claude
           </button>
@@ -109,7 +112,8 @@ function PaymentSection({ c }: { c: ClientCardView }) {
                     p.state === "overdue"
                       ? `${c.name} בפיגור תשלום של ${formatCurrency(p.overdueAmount, currency)} כבר ${p.daysOverdue} ימים. נסח לי הודעת תזכורת מנומסת ללקוח.`
                       : `${c.name} עדיין לא שילם את דמי התחזוקה החודשיים (${formatCurrency(c.contract?.monthlyFee ?? null, currency)}). ` +
-                        `התשלום האחרון שנרשם: ${p.lastPaidOn ? formatDate(p.lastPaidOn) : "אין"}. נסח לי הודעת תזכורת מנומסת.`
+                        `התשלום האחרון שנרשם: ${p.lastPaidOn ? formatDate(p.lastPaidOn) : "אין"}. נסח לי הודעת תזכורת מנומסת.`,
+                    c.id
                   )
                 }
                 className="btn btn-ai btn-sm mt-3"
@@ -189,13 +193,16 @@ export function ClientDetail({ clientId }: { clientId: string }) {
               ) : (
                 <div className="space-y-2">
                   {data.alerts.map((a) => (
-                    <AlertItem key={a.id} a={a} />
+                    <AlertItem key={a.id} a={a} client={clientId} />
                   ))}
                 </div>
               )}
               <button
                 onClick={() =>
-                  askAbout(`תן לי סקירה על הבוט של ${data.name} — מה מצבו ומה קרה לאחרונה.`)
+                  askAbout(
+                    `תן לי סקירה על הבוט של ${data.name} — מה מצבו ומה קרה לאחרונה.`,
+                    clientId
+                  )
                 }
                 className="btn btn-sm mt-3"
               >
@@ -206,6 +213,8 @@ export function ClientDetail({ clientId }: { clientId: string }) {
           </Card>
 
           <PaymentSection c={data} />
+
+          <ClientDossier client={clientId} clientName={data.name} />
 
           <ContractForm clientId={clientId} contract={data.contract} />
         </div>

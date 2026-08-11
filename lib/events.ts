@@ -80,6 +80,33 @@ export async function resolveIntegrationEvents(
   );
 }
 
+/**
+ * Auto-resolve events in ONE dedup_key namespace whose condition has cleared.
+ *
+ * Deliberately not resolveStaleEvents: that closes every non-resolved event a
+ * bot has, which is right for the detector cron (it re-derives all of them each
+ * cycle) and catastrophic for any other producer — the agent sweep would silently
+ * close QUEUE_STUCK and BOT_DOWN just by running. Scoping to a prefix keeps each
+ * producer able to clear only what it raised.
+ */
+export async function resolveEventsByPrefix(
+  prefix: string,
+  activeDedupKeys: string[]
+): Promise<void> {
+  const keep = activeDedupKeys.length
+    ? `and dedup_key not in (${activeDedupKeys.map(sqlString).join(", ")})`
+    : "";
+  // `like` with an escaped literal prefix; the namespace separator is ':' so a
+  // prefix can never reach into another producer's keys.
+  await runSql(
+    cp(),
+    `update botops.dashboard_events
+        set status = 'resolved', resolved_at = now()
+      where status <> 'resolved'
+        and dedup_key like ${sqlString(`${prefix}%`)} ${keep}`
+  );
+}
+
 export async function listEvents(opts: { status?: string; limit?: number } = {}): Promise<DashboardEvent[]> {
   const where = opts.status ? `where status = ${sqlString(opts.status)}` : "";
   const limit = Math.min(Math.max(opts.limit ?? 100, 1), 500);

@@ -17,6 +17,7 @@ import {
   loadMessages,
   markPendingOutcome,
   recordPending,
+  threadClient,
 } from "@/lib/ai/threads";
 
 export const runtime = "nodejs";
@@ -28,6 +29,10 @@ const bodySchema = z.union([
     kind: z.literal("message"),
     threadId: z.string().uuid().optional(),
     text: z.string().min(1).max(8000),
+    /** Bot slug — opens the conversation with that client's dedicated agent.
+     *  Only read when starting a NEW thread; an existing thread's agent is
+     *  whatever it was created with. */
+    client: z.string().min(1).max(64).optional(),
   }),
   z.object({
     kind: z.literal("decision"),
@@ -57,7 +62,9 @@ export async function POST(req: Request) {
     const rejected = new Set<string>();
 
     if (body.kind === "message") {
-      threadId = body.threadId ?? (await createThread(actor?.email ?? null, body.text));
+      threadId =
+        body.threadId ??
+        (await createThread(actor?.email ?? null, body.text, body.client ?? null));
       await appendMessage(threadId, {
         role: "user",
         content: [{ type: "text", text: body.text }],
@@ -75,8 +82,12 @@ export async function POST(req: Request) {
       (body.approve ? approved : rejected).add(body.toolUseId);
     }
 
+    // The thread's own row is the authority on which agent this is — never the
+    // request body. A caller that posts `client` alongside someone else's thread
+    // id must not be able to widen (or narrow) that thread's scope.
+    const boundClient = await threadClient(threadId);
     const messages = await loadMessages(threadId);
-    const system = await systemPrompt();
+    const system = await systemPrompt({ client: boundClient });
 
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
@@ -90,6 +101,7 @@ export async function POST(req: Request) {
             messages,
             system,
             actor,
+            boundClient,
             approvedToolUseIds: approved,
             rejectedToolUseIds: rejected,
           })) {

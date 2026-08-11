@@ -6,6 +6,7 @@
 import { env } from "../env";
 import { anthropicHeaders, thinkingFor } from "./anthropic";
 import { allTools, anthropicTools, executeTool, getTool, summarizeTool } from "./tools/registry";
+import type { ToolPolicy } from "./tools/types";
 import type { Session } from "../auth";
 
 /** The model in use. Reads the env so a swap needs no deploy. */
@@ -74,6 +75,7 @@ interface StreamedTurn {
 async function* streamTurn(
   messages: AgentMessage[],
   system: string,
+  tools: ReturnType<typeof anthropicTools>,
   onDone: (t: StreamedTurn) => void
 ): AsyncGenerator<string> {
   const { budget, maxTokens } = thinkingFor(env.aiEffort());
@@ -85,7 +87,7 @@ async function* streamTurn(
       model: agentModel(),
       max_tokens: maxTokens,
       system,
-      tools: anthropicTools(),
+      tools,
       messages: messages.map((m) => ({ role: m.role, content: m.content })),
       // Thinking is what makes the difference between "ran a tool" and "worked
       // out which tool answers the question" — the copilot reasons over live
@@ -203,10 +205,23 @@ export interface RunAgentArgs {
   messages: AgentMessage[];
   system: string;
   actor: Session | null;
+  /**
+   * Bot slug when this thread belongs to a client's dedicated agent. Passed to
+   * every tool call so executeTool can refuse anything reaching outside it.
+   */
+  boundClient?: string | null;
   /** tool_use ids the user has explicitly approved. */
   approvedToolUseIds?: Set<string>;
   /** tool_use ids the user explicitly rejected — reported back to the model. */
   rejectedToolUseIds?: Set<string>;
+  /**
+   * Extra tool restrictions. Sub-agents pass `{ readOnly, noDelegation }`; the
+   * interactive copilot passes nothing. Applied both to the spec list the model
+   * sees and inside executeTool.
+   */
+  policy?: ToolPolicy;
+  /** Step budget. Sub-agents get a smaller one than the interactive copilot. */
+  maxIterations?: number;
 }
 
 /**
@@ -215,15 +230,17 @@ export interface RunAgentArgs {
  * the caller can save the thread without reconstructing it.
  */
 export async function* runAgent(args: RunAgentArgs): AsyncGenerator<AgentEvent> {
-  const { system, actor } = args;
+  const { system, actor, boundClient = null, policy } = args;
   const approved = args.approvedToolUseIds ?? new Set<string>();
   const rejected = args.rejectedToolUseIds ?? new Set<string>();
   const messages = [...args.messages];
+  const tools = anthropicTools({ policy, boundClient });
+  const maxIterations = args.maxIterations ?? MAX_ITERATIONS;
 
-  for (let i = 0; i < MAX_ITERATIONS; i++) {
+  for (let i = 0; i < maxIterations; i++) {
     let turn: StreamedTurn = { blocks: [], stopReason: null };
     try {
-      for await (const chunk of streamTurn(messages, system, (t) => (turn = t))) {
+      for await (const chunk of streamTurn(messages, system, tools, (t) => (turn = t))) {
         yield { type: "text", text: chunk };
       }
     } catch (e) {
@@ -278,7 +295,7 @@ export async function* runAgent(args: RunAgentArgs): AsyncGenerator<AgentEvent> 
 
       yield { type: "tool_start", id: use.id, name: use.name, input: use.input };
       try {
-        const out = await executeTool(use.name, use.input, { actor });
+        const out = await executeTool(use.name, use.input, { actor, boundClient, policy });
         results.push({ type: "tool_result", tool_use_id: use.id, content: resultToContent(out) });
         yield { type: "tool_result", id: use.id, name: use.name, ok: true, preview: preview(out) };
       } catch (e) {

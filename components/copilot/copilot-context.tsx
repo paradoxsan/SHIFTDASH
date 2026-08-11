@@ -8,11 +8,16 @@ interface CopilotCtx {
   setOpen: (v: boolean) => void;
   items: ChatItem[];
   busy: boolean;
+  /** Bot slug of the client agent in use; null = the agency-wide copilot. */
+  agent: string | null;
+  /** Switch agent. Always starts a fresh conversation — see below. */
+  setAgent: (client: string | null) => void;
   send: (text: string) => Promise<void>;
   decide: (toolUseId: string, approve: boolean) => Promise<void>;
   reset: () => void;
-  /** Open the panel and ask about something on screen, in one call. */
-  askAbout: (prompt: string) => void;
+  /** Open the panel and ask about something on screen, in one call. Pass a bot
+   *  slug to route the question to that client's agent. */
+  askAbout: (prompt: string, client?: string | null) => void;
 }
 
 const Ctx = createContext<CopilotCtx | null>(null);
@@ -27,7 +32,11 @@ export function CopilotProvider({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<ChatItem[]>([]);
   const [busy, setBusy] = useState(false);
+  const [agent, setAgentState] = useState<string | null>(null);
   const threadId = useRef<string | null>(null);
+  // Read inside send() so a switch made between renders is seen immediately;
+  // state alone would send one message to the previous agent.
+  const agentRef = useRef<string | null>(null);
   /** Whether the streaming text should keep filling the last bubble or start a
    *  new one (a tool round ends the current bubble). */
   const openBubble = useRef(false);
@@ -180,7 +189,13 @@ export function CopilotProvider({ children }: { children: React.ReactNode }) {
       await consume({
         kind: "message",
         text: trimmed,
-        ...(threadId.current ? { threadId: threadId.current } : {}),
+        ...(threadId.current
+          ? { threadId: threadId.current }
+          : // Only sent when opening a NEW thread — the server pins the agent at
+            // creation and ignores this field thereafter.
+            agentRef.current
+            ? { client: agentRef.current }
+            : {}),
       });
     },
     [busy, consume]
@@ -208,17 +223,34 @@ export function CopilotProvider({ children }: { children: React.ReactNode }) {
     setItems([]);
   }, []);
 
+  /**
+   * Switching agent always clears the conversation. A thread is bound to one
+   * client server-side at creation, so continuing an existing thread under a
+   * new agent is not a thing that can happen — carrying the transcript across
+   * would just show a history the new agent cannot actually act on.
+   */
+  const setAgent = useCallback(
+    (client: string | null) => {
+      if (agentRef.current === client) return;
+      agentRef.current = client;
+      setAgentState(client);
+      reset();
+    },
+    [reset]
+  );
+
   const askAbout = useCallback(
-    (prompt: string) => {
+    (prompt: string, client?: string | null) => {
+      if (client !== undefined) setAgent(client);
       setOpen(true);
       void send(prompt);
     },
-    [send]
+    [send, setAgent]
   );
 
   const value = useMemo(
-    () => ({ open, setOpen, items, busy, send, decide, reset, askAbout }),
-    [open, items, busy, send, decide, reset, askAbout]
+    () => ({ open, setOpen, items, busy, agent, setAgent, send, decide, reset, askAbout }),
+    [open, items, busy, agent, setAgent, send, decide, reset, askAbout]
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

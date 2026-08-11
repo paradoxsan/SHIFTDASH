@@ -13,6 +13,8 @@ export interface ThreadRow {
   title: string | null;
   created_at: string;
   updated_at: string;
+  /** Bot slug of the client agent this thread belongs to; null = agency copilot. */
+  client: string | null;
 }
 
 export interface PendingAction {
@@ -25,29 +27,78 @@ export interface PendingAction {
   status: "pending" | "approved" | "rejected" | "executed" | "failed";
 }
 
-export async function createThread(userEmail: string | null, title: string): Promise<string> {
+/**
+ * A thread's client is resolved from the bot slug ONCE, at creation, and stored
+ * as the tenant id. Re-resolving per turn would let a thread silently change
+ * agent if the registry moved a slug — and the transcript would then mix two
+ * clients' data under one scope check.
+ */
+export async function createThread(
+  userEmail: string | null,
+  title: string,
+  clientSlug?: string | null
+): Promise<string> {
+  const tenant = clientSlug
+    ? `(select tenant_id from botops.bots where slug = ${sqlString(clientSlug)} limit 1)`
+    : "null";
   const rows = await runSql<{ id: string }>(
     cp(),
-    `insert into botops.ai_threads (user_id, title)
+    `insert into botops.ai_threads (user_id, title, tenant_id)
        values (
          (select id from botops.app_users where lower(email) = lower(${sqlString(userEmail ?? "")}) limit 1),
-         ${sqlString(title.slice(0, 120))}
+         ${sqlString(title.slice(0, 120))},
+         ${tenant}
        )
      returning id`
   );
   return rows[0].id;
 }
 
-export async function listThreads(userEmail: string | null, limit = 30): Promise<ThreadRow[]> {
+/**
+ * Threads for one agent. `client` undefined lists everything; null lists only
+ * the agency copilot's threads — the distinction matters because the agent
+ * picker must not file T center's debug sessions under the agency assistant.
+ */
+export async function listThreads(
+  userEmail: string | null,
+  opts: { client?: string | null; limit?: number } = {}
+): Promise<ThreadRow[]> {
+  const limit = Math.floor(opts.limit ?? 30);
+  const scope =
+    opts.client === undefined
+      ? ""
+      : opts.client === null
+        ? "and t.tenant_id is null"
+        : `and b.slug = ${sqlString(opts.client)}`;
+
   return runSql<ThreadRow>(
     cp(),
-    `select t.id, t.title, t.created_at, t.updated_at
+    `select t.id, t.title, t.created_at, t.updated_at, b.slug as client
        from botops.ai_threads t
        left join botops.app_users u on u.id = t.user_id
-      where u.email is null or lower(u.email) = lower(${sqlString(userEmail ?? "")})
+       left join botops.bots b on b.tenant_id = t.tenant_id
+      where (u.email is null or lower(u.email) = lower(${sqlString(userEmail ?? "")}))
+        ${scope}
       order by t.updated_at desc
-      limit ${Math.floor(limit)}`
+      limit ${limit}`
   );
+}
+
+/**
+ * The client a thread is pinned to — the authority for tool scoping. Read from
+ * the DB rather than trusted from the request body, so the browser cannot widen
+ * its own scope by posting a different slug alongside an existing thread id.
+ */
+export async function threadClient(threadId: string): Promise<string | null> {
+  const rows = await runSql<{ client: string | null }>(
+    cp(),
+    `select b.slug as client
+       from botops.ai_threads t
+       left join botops.bots b on b.tenant_id = t.tenant_id
+      where t.id = ${sqlString(threadId)}::uuid
+      limit 1`
+  );
+  return rows[0]?.client ?? null;
 }
 
 export async function loadMessages(threadId: string): Promise<AgentMessage[]> {

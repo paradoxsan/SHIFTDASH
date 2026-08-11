@@ -10,7 +10,13 @@ export async function GET(req: Request) {
   try {
     const actor = await getCurrentUser(req);
     requireRole(actor?.role, "viewer");
-    return ok({ threads: await listThreads(actor?.email ?? null) });
+
+    // ?client=t-center → that agent's threads. ?client=agency → the agency
+    // copilot's own. Absent → everything, which is what the old dock expects.
+    const raw = new URL(req.url).searchParams.get("client");
+    const client = raw === null ? undefined : raw === "agency" ? null : raw;
+
+    return ok({ threads: await listThreads(actor?.email ?? null, { client }) });
   } catch (e) {
     return fail(e);
   }

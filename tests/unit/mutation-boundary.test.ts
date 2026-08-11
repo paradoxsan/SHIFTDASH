@@ -31,10 +31,23 @@ function stripComments(src: string): string {
 // Mutating routes that legitimately do NOT go through auditedMutation — auth /
 // session establishment (no actor yet), and the monitoring cron (a SYSTEM actor
 // authed by CRON_SECRET, recorded via systemAudit not RBAC).
+//
+// internal/ask is a POST that mutates NOTHING: it runs the copilot headless
+// under a hardcoded `policy: { readOnly: true }` (lib/ai/ask.ts), which
+// executeTool enforces by refusing every write tool. That exemption is only
+// safe while the policy stays hardcoded, so ai-ask-headless.test.ts asserts it
+// on every run — if someone makes it configurable, that test fails rather than
+// this allowlist quietly covering an unaudited write.
 const ALLOW = new Set([
   "app/api/auth/login/route.ts",
   "app/api/auth/logout/route.ts",
   "app/api/cron/monitor/route.ts",
+  "app/api/internal/ask/route.ts",
+  // Same justification as the monitor cron it runs alongside: a SYSTEM actor
+  // authed by CRON_SECRET, writing dashboard_events and recording via
+  // systemAudit rather than RBAC. It reaches no write TOOL — askCopilot pins
+  // readOnly (asserted in ai-ask-headless.test.ts).
+  "app/api/cron/agent-sweep/route.ts",
 ]);
 
 function walk(dir: string): string[] {

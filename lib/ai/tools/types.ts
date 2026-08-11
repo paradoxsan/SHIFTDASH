@@ -9,8 +9,33 @@ import type { Session } from "@/lib/auth";
 
 export type ToolRisk = "read" | "write";
 
+/**
+ * Extra limits on which tools may run in a given turn, on top of `risk`.
+ *
+ * Enforced in executeTool, NOT only by trimming the spec list handed to the
+ * model — a model can name a tool it was never offered, and the filtered list
+ * is an affordance while this is the control.
+ */
+export interface ToolPolicy {
+  /** Deny every write. Sub-agents run under this: there is no user watching a
+   *  nested turn, so there is nobody to approve. */
+  readOnly?: boolean;
+  /** Deny tools marked `scope: "agency"` — what stops a sub-agent delegating
+   *  to another sub-agent forever. */
+  noDelegation?: boolean;
+}
+
 export interface ToolContext {
   actor: Session | null;
+  /**
+   * Bot slug this conversation is pinned to, when the thread belongs to a
+   * client's dedicated agent. executeTool refuses any call carrying a different
+   * `client`, so scoping is a property of the runtime rather than a promise the
+   * system prompt makes.
+   */
+  boundClient?: string | null;
+  /** Restrictions for this turn. Absent means the ordinary interactive copilot. */
+  policy?: ToolPolicy;
 }
 
 export interface AuditTarget {
@@ -23,6 +48,12 @@ export interface ToolDef<T = unknown> {
   name: string;
   description: string;
   risk: ToolRisk;
+  /**
+   * "agency" marks a tool only the unbound agency copilot may call. Today that
+   * is delegation: a client's agent must not be able to reach another client's
+   * agent, and a sub-agent must not be able to spawn more sub-agents.
+   */
+  scope?: "agency";
   schema: ZodType<T>;
   /** One Hebrew line describing what will happen — shown on the approval card. */
   summarize: (input: T) => string;
