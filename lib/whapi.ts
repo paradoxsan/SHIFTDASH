@@ -21,22 +21,76 @@ export function hasWhapi(ref: string): boolean {
   return Boolean(env.whapiTokens()[ref]);
 }
 
+export interface ChannelProbe {
+  ok: boolean;
+  detail?: string;
+}
+
+/** Statuses WHAPI reports while a channel is running but has no usable session. */
+const DISCONNECTED_STATUSES = new Set([
+  "QR", // waiting for someone to scan — i.e. the phone was unlinked
+  "LAUNCH",
+  "STARTING",
+  "INIT",
+  "CONFLICT", // another device took the session
+  "LOGGED_OUT",
+  "BANNED",
+  "EXPIRED",
+  "STOPPED",
+]);
+
 /**
- * Cheapest honest liveness probe for a channel: ask for one chat. A 401/403
- * means the token is dead, any other failure means the channel is unreachable.
- * n8n can look perfectly healthy while the WhatsApp number is disconnected, and
- * without this nothing in the system would notice.
+ * Pure: decide whether a WHAPI `/health` body describes a channel that can
+ * actually send and receive.
+ *
+ * A logged-out channel answers HTTP 200 to everything — `/chats` included, just
+ * with an empty list — so status codes alone cannot see an outage. `/health` is
+ * the only endpoint that distinguishes them: a paired channel reports
+ * `status.text: "AUTH"` with a populated `user`; an unpaired one reports `"QR"`
+ * with `user: null`. Both signals are required, because either can go stale
+ * alone.
+ *
+ * Deliberately fails OPEN on a shape we do not recognise: a WHAPI schema change
+ * must not fire a critical alert every cycle for a bot that is working.
  */
-export async function probeChannel(ref: string): Promise<{ ok: boolean; detail?: string }> {
+export function channelStatusFromHealth(raw: unknown): ChannelProbe {
+  if (!raw || typeof raw !== "object") return { ok: true };
+
+  const body = raw as { status?: { text?: unknown; code?: unknown }; user?: unknown };
+  const statusText = typeof body.status?.text === "string" ? body.status.text.toUpperCase() : null;
+  const hasUser = Boolean(body.user && typeof body.user === "object");
+
+  // Neither signal present — an unknown payload, not evidence of a fault.
+  if (statusText === null && body.user === undefined) return { ok: true };
+
+  if (statusText !== null && DISCONNECTED_STATUSES.has(statusText)) {
+    return { ok: false, detail: `הטלפון לא מקושר לערוץ (${statusText}) — צריך לסרוק QR מחדש` };
+  }
+  if (!hasUser) {
+    return {
+      ok: false,
+      detail: `הטלפון לא מקושר לערוץ (${statusText ?? "אין סשן"}) — צריך לסרוק QR מחדש`,
+    };
+  }
+  return { ok: true };
+}
+
+/**
+ * Honest liveness probe for a channel. A 401/403 means the token is dead, any
+ * other non-2xx means WHAPI is unreachable, and a 2xx still has to be inspected
+ * — see `channelStatusFromHealth` for why 200 does not mean "connected".
+ */
+export async function probeChannel(ref: string): Promise<ChannelProbe> {
   try {
-    const u = new URL(`${env.whapiBaseUrl()}/chats`);
-    u.searchParams.set("count", "1");
-    const res = await fetch(u, { headers: headers(ref), cache: "no-store" });
-    if (res.ok) return { ok: true };
+    const res = await fetch(`${env.whapiBaseUrl()}/health`, {
+      headers: headers(ref),
+      cache: "no-store",
+    });
     if (res.status === 401 || res.status === 403) {
       return { ok: false, detail: `טוקן לא תקף (${res.status})` };
     }
-    return { ok: false, detail: `WHAPI ${res.status}` };
+    if (!res.ok) return { ok: false, detail: `WHAPI ${res.status}` };
+    return channelStatusFromHealth(await res.json().catch(() => null));
   } catch (e) {
     return { ok: false, detail: e instanceof Error ? e.message : "לא ניתן להגיע ל-WHAPI" };
   }
