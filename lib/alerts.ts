@@ -101,6 +101,24 @@ export function describeEvent(
         detail: `לא נכנסה הודעה ${min != null ? `${Math.round(min / 60)} שעות` : "הרבה זמן"}, למרות שזה בוט עם תנועה. ייתכן שהערוץ או הקמפיין נפלו.`,
       };
     }
+    case "BOT_NOT_ANSWERING": {
+      const active = num(payload, "activeChats24h");
+      const answered = num(payload, "answeredChats24h");
+      const cov = num(payload, "coverage");
+      const baseline = num(payload, "baseline");
+      const pct = (v: number | null) => (v != null ? `${Math.round(v * 100)}%` : "?");
+      return {
+        title:
+          answered === 0
+            ? `הבוט של ${who} לא עונה לאף אחד`
+            : `הבוט של ${who} כמעט לא עונה`,
+        detail:
+          `ב-24 השעות האחרונות נכנסו ${active ?? "כמה"} שיחות והבוט ענה ל-${answered ?? 0} מהן ` +
+          `(${pct(cov)} לעומת ${pct(baseline)} בשבוע שלפני). ` +
+          "n8n והערוץ תקינים — כלומר הבוט מושתק, לא נפל: בדוק human_mode (השתלטות ידנית), " +
+          "את רשימת ההרשאה של הקמפיין ואת ה-workflow שמריץ את התשובות.",
+      };
+    }
     case "RLS_REGRESSION":
       return {
         title: `אבטחת נתונים אצל ${who}`,

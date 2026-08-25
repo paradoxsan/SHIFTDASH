@@ -7,7 +7,7 @@ import { sqlString } from "../sql";
 import { getExecutionDetail } from "../n8n";
 import { hasWhapi, probeChannel } from "../whapi";
 import type { N8nExecution, N8nWorkflow } from "../types";
-import type { BotSignals } from "./detectors";
+import { COVERAGE_MIN_CHATS, type BotSignals } from "./detectors";
 import { scanBotOutput, type BotMessage, type OutputFinding } from "./output-quality";
 
 /** How far back to read the bot's own replies each cycle. Long enough that a
@@ -81,6 +81,97 @@ async function outputSignals(
   return scanBotOutput(messages);
 }
 
+/** How long a customer may wait before we stop calling it "the bot answered".
+ *  Generous on purpose: the message buffer batches a burst of messages and the
+ *  agent takes its time, so a tight window would count healthy replies as misses. */
+const ANSWER_WINDOW_MIN = 45;
+/** The baseline window: the week BEFORE the day being judged. */
+const BASELINE_DAYS = 8;
+
+interface CoverageRow {
+  win: string;
+  chats: number;
+  answered: number;
+}
+
+/**
+ * The share of conversations the bot itself answered — last 24h, and the week
+ * before it as this bot's own normal.
+ *
+ * Coverage is only readable where the bot LOGS what it sent. A bot that keeps
+ * no outbound log would read as answering nobody, which is the same mistake
+ * QUEUE_STUCK made on T-CENTER's append-only inbox: prove the log exists and is
+ * being written before believing what it implies. So this returns nulls unless
+ * the audit_log has actual api sends in the window.
+ */
+async function coverageSignals(
+  ref: string,
+  allowedTables: string[],
+  auditColumns: { name: string }[],
+  inboxColumns: { name: string }[]
+): Promise<{ active: number | null; answered: number | null; baseline: number | null }> {
+  const empty = { active: null, answered: null, baseline: null };
+  if (!allowedTables.includes("audit_log") || !allowedTables.includes("inbox")) return empty;
+  const hasAudit = (c: string) => auditColumns.some((x) => x.name === c);
+  const hasInbox = (c: string) => inboxColumns.some((x) => x.name === c);
+  if (!hasAudit("chat_id") || !hasAudit("from_me") || !hasAudit("created_at")) return empty;
+  if (!hasInbox("chat_id") || !hasInbox("created_at")) return empty;
+
+  // `source = 'api'` is what separates the bot's own sends from the owner
+  // answering by hand off their phone. Without that column we cannot tell the
+  // two apart, and "a human covered for the bot" would read as a healthy bot.
+  if (!hasAudit("source")) return empty;
+  const sent = `from_me = true and source = 'api'`;
+
+  const rows = await runSql<CoverageRow>(
+    ref,
+    `with recent as (
+       select chat_id, max(created_at) as at
+         from public.inbox
+        where chat_id is not null and created_at >= now() - interval '24 hours'
+        group by chat_id
+     ),
+     prior as (
+       select chat_id, max(created_at) as at
+         from public.inbox
+        where chat_id is not null
+          and created_at >= now() - interval '${BASELINE_DAYS} days'
+          and created_at <  now() - interval '24 hours'
+        group by chat_id
+     ),
+     judged as (
+       select 'recent' as win, r.chat_id,
+              exists (select 1 from public.audit_log a
+                       where a.chat_id = r.chat_id and ${sent}
+                         and a.created_at >= r.at
+                         and a.created_at <  r.at + interval '${ANSWER_WINDOW_MIN} minutes') as ok
+         from recent r
+       union all
+       select 'prior', p.chat_id,
+              exists (select 1 from public.audit_log a
+                       where a.chat_id = p.chat_id and ${sent}
+                         and a.created_at >= p.at
+                         and a.created_at <  p.at + interval '${ANSWER_WINDOW_MIN} minutes')
+         from prior p
+     )
+     select win, count(*)::int as chats, count(*) filter (where ok)::int as answered
+       from judged group by win`
+  );
+
+  const recent = rows.find((r) => r.win === "recent");
+  const prior = rows.find((r) => r.win === "prior");
+  // No history to compare against, or an outbound log that records nothing:
+  // report "unknown", never a zero that reads as an outage.
+  if (!prior || Number(prior.chats) < COVERAGE_MIN_CHATS) return empty;
+  if (Number(prior.answered) === 0 && Number(recent?.answered ?? 0) === 0) return empty;
+
+  return {
+    active: recent ? Number(recent.chats) : 0,
+    answered: recent ? Number(recent.answered) : 0,
+    baseline: Number(prior.answered) / Number(prior.chats),
+  };
+}
+
 /** How many failed runs to open per bot when sampling error text. Each costs an
  *  n8n round-trip, so keep it small — a recurring failure repeats anyway. */
 const ERROR_SAMPLE = 2;
@@ -134,6 +225,9 @@ export async function gatherSignals(
   let lastInboundAgeMin: number | null = null;
   let inbound7d: number | null = null;
   let outputFindings: OutputFinding[] | undefined;
+  let activeChats24h: number | null = null;
+  let answeredChats24h: number | null = null;
+  let coverageBaseline: number | null = null;
 
   try {
     const schema = await introspect(client.supabaseRef);
@@ -206,6 +300,24 @@ export async function gatherSignals(
     } catch {
       outputFindings = undefined;
     }
+
+    // Is the bot still carrying the conversations, or has it quietly stopped?
+    // Isolated like the output scan: losing this signal must not cost the rest.
+    try {
+      const cov = await coverageSignals(
+        client.supabaseRef,
+        allowed,
+        schema.tables["audit_log"] ?? [],
+        inbox
+      );
+      activeChats24h = cov.active;
+      answeredChats24h = cov.answered;
+      coverageBaseline = cov.baseline;
+    } catch {
+      activeChats24h = null;
+      answeredChats24h = null;
+      coverageBaseline = null;
+    }
   } catch {
     // bot has no inbox / unreachable — leave signals at defaults
   }
@@ -239,6 +351,9 @@ export async function gatherSignals(
     channelDetail,
     lastInboundAgeMin,
     inbound7d,
+    activeChats24h,
+    answeredChats24h,
+    coverageBaseline,
     outputFindings,
   };
 }
