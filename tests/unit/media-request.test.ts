@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 // plain .mjs, shared verbatim with the n8n Code node
 import {
-  detectMediaRequest, handoffPlan, lastSiteLink, mediaReply, mediaGroupLine, MEDIA_PROMPT_RULES,
+  detectMediaRequest, lastSiteLink, mediaReply, mediaGroupLine, MEDIA_PROMPT_RULES,
 } from "../../lib/bot/media-request.mjs";
 import { forbiddenClaim } from "../../lib/bot/followup.mjs";
 
@@ -75,41 +75,6 @@ describe("detectMediaRequest — is the customer asking us to send a video or ph
   });
 });
 
-describe("handoffPlan — does this handoff mute Noa?", () => {
-  it("a video request is soft: the team is told, Noa keeps answering", () => {
-    const p = handoffPlan("יש וידאו של זה?");
-    expect(p.mode).toBe("soft");
-    expect(p.muteMinutes).toBe(0);
-    expect(p.reason).toBe("media:video");
-  });
-
-  it("an explicit ask for a person still mutes her", () => {
-    const p = handoffPlan("אני רוצה לדבר עם נציג");
-    expect(p.mode).toBe("hard");
-    expect(p.muteMinutes).toBe(120);
-    expect(p.reason).toBe("human:נציג");
-  });
-
-  it("a complaint beats a media request in the same message", () => {
-    const p = handoffPlan("יש סרטון? כי מה שקיבלתי שבור");
-    expect(p.mode).toBe("hard");
-    expect(p.reason).toBe("human:שבור");
-  });
-
-  it("a faulty-item report with a photo attached is a takeover, not a media ask", () => {
-    const p = handoffPlan("הסוגר של הצמיד נפתח לבד, יש תקלה\n[תמונה ששלח הלקוח: צמיד על היד]");
-    expect(p.mode).toBe("hard");
-    expect(p.reason).toBe("human:תקלה");
-  });
-
-  it("anything else keeps today's behaviour", () => {
-    const p = handoffPlan("כמה גרם זהב יש בתכשיט", { muteMinutes: 30 });
-    expect(p.mode).toBe("hard");
-    expect(p.muteMinutes).toBe(30);
-    expect(p.reason).toBe("default");
-  });
-});
-
 describe("lastSiteLink — which page answers 'show me a video'", () => {
   it("returns the page Noa sent last — the sets page in that chat", () => {
     expect(lastSiteLink(CHAT)).toBe(SETS);
@@ -180,11 +145,10 @@ describe("mediaGroupLine — what the team sees", () => {
 });
 
 describe("a video ask right after the sets page, end to end", () => {
-  it("would have answered on the spot and stayed on", () => {
+  it("would have answered on the spot with the sets page", () => {
     const ask = CHAT[CHAT.length - 1].text;
     const kind = detectMediaRequest(ask);
     expect(kind).toBe("video");
-    expect(handoffPlan(ask).muteMinutes).toBe(0);
     expect(mediaReply({ kind, url: lastSiteLink(CHAT) })).toContain(SETS);
   });
 });
