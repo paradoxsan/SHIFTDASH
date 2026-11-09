@@ -155,7 +155,8 @@ describe("a video ask right after the sets page, end to end", () => {
 
 describe("MEDIA_PROMPT_RULES — the same rule, for the agent's system message", () => {
   it("tells her what she can't do, the fix, and not to hand off the whole chat", () => {
-    expect(MEDIA_PROMPT_RULES).toContain("לא יכולה לשלוח סרטון");
+    // Since 2026-11-09 the system sends product samples; what she still can't do is film one.
+    expect(MEDIA_PROMPT_RULES).toContain("לא יכולה לצלם");
     expect(MEDIA_PROMPT_RULES).toContain("באתר");
     expect(MEDIA_PROMPT_RULES).toContain("לא סיבה להעביר");
     expect(MEDIA_PROMPT_RULES).not.toContain("\\n");
