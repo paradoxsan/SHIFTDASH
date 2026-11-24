@@ -5,7 +5,8 @@ import {
   detectFriction,
   decideFriction,
   isRepeat,
-  handoffReply,
+  reminderAlert,
+  isShopOpen,
   groupAlert,
   historyBefore,
   repeatGuard,
@@ -136,13 +137,42 @@ describe("decideFriction — what the bot does with this message", () => {
     expect(decideFriction({ text: "20 חולצות שחורות דרייפיט", history: [], now: NOW })).toMatchObject({ action: "continue" });
   });
 
-  it("asking for a person hands off immediately, with one honest reply", () => {
+  it("asking for a person hands off immediately — nothing to the customer, an alert to Asi", () => {
     const d = decideFriction({ text: "אפשר לדבר עם נציג?", history: [], now: NOW, businessOpen: true });
     expect(d.action).toBe("handoff");
     expect(d.reason).toBe("wants_human");
-    expect(d.reply).toBeTruthy();
-    expect(d.reply).not.toMatch(/ברגעים הקרובים/); // that promise was broken in half the chats
+    expect(d.reply).toBeNull(); // a bot line doesn't calm anyone; Asi's answer does
     expect(d.notifyGroup).toBe(true);
+  });
+
+  it.each([
+    ["אפשר לקבל הנחה?", "discount"],
+    ["תוריד לי במחיר ואני סוגר עכשיו", "discount"],
+    ["יש מצב ליותר זול?", "discount"],
+  ])("only Asi decides on price: %s → %s", (text, reason) => {
+    expect(decideFriction({ text, history: [], now: NOW })).toMatchObject({ action: "handoff", reason, reply: null });
+  });
+
+  it("'what's happening with my order' goes to Asi when the chat has an order", () => {
+    for (const text of ["יש עדכון?", "מה עם ההזמנה?", "מתי זה יהיה מוכן?", "מוכן?", "מתי אפשר לאסוף?"]) {
+      expect(decideFriction({ text, history: [], now: NOW, hasOrder: true })).toMatchObject({ action: "handoff", reason: "order_status" });
+    }
+  });
+
+  it("…but a lead asking how long production takes is the bot's to answer", () => {
+    expect(decideFriction({ text: "מתי זה יהיה מוכן אם אני מזמין היום?", history: [], now: NOW, hasOrder: false }).action).toBe("continue");
+  });
+
+  it("'is this a bot?' gets one honest line, and the chat goes to Asi", () => {
+    for (const text of ["זה בוט?", "אני מדבר עם בוט?", "האם את/ה בן אדם או בוט?", "אני עם נציג דיגיטלי או אנושי?"]) {
+      const d = decideFriction({ text, history: [], now: NOW });
+      expect(d).toMatchObject({ action: "handoff", reason: "asks_if_bot", notifyGroup: true });
+      expect(d.reply).toMatch(/בוט/); // never pretends to be a person
+    }
+  });
+
+  it("calling it a robot in passing is not the sincere question", () => {
+    expect(decideFriction({ text: "חחחח רובוט לא מפותח", history: [], now: NOW }).reason).not.toBe("asks_if_bot");
   });
 
   it("one '??' alone does not hand off", () => {
@@ -178,7 +208,7 @@ describe("decideFriction — what the bot does with this message", () => {
   });
 
   it("while holding, the group is re-alerted only when the customer is getting upset", () => {
-    const history = [b("העברתי את השיחה לצוות 🙏", 30)];
+    const history = [b("קיבלנו את הפנייה 🙏 נציג יחזור אליך ברגעים הקרובים.", 30)];
     expect(decideFriction({ text: "תודה", history, now: NOW }).notifyGroup).toBe(false);
     expect(decideFriction({ text: "למה אף אחד לא עונה???", history, now: NOW }).notifyGroup).toBe(true);
   });
@@ -224,10 +254,10 @@ describe("isRepeat — last line of defence before sending", () => {
 });
 
 describe("repeatGuard — what Repeat Guard does with the agent's reply", () => {
-  it("swaps a verbatim repeat for one honest handoff line", () => {
+  it("blocks a verbatim repeat — nothing is sent, Asi is alerted instead", () => {
     const g = repeatGuard({ reply: "כמה יחידות תרצה? 🙂", isOrder: false, lastBotText: "כמה יחידות תרצה?" });
     expect(g.blocked).toBe(true);
-    expect(g.reply).toMatch(/העברתי את השיחה לצוות/);
+    expect(g.reply).toBeNull();
   });
   it("never blocks an order summary — that send releases the payment link", () => {
     const s = "הנה סיכום ההזמנה: • עיצוב 1: חולצה כותנה שרוול קצר — לבן 10 יח'";
@@ -238,13 +268,30 @@ describe("repeatGuard — what Repeat Guard does with the agent's reply", () => 
   });
 });
 
-describe("handoffReply / groupAlert", () => {
-  it("is honest about business hours", () => {
-    expect(handoffReply("wants_human", false)).toMatch(/שעות הפעילות/);
-    expect(handoffReply("wants_human", true)).not.toMatch(/שעות הפעילות/);
+describe("isShopOpen — reminders only while T-Center is open", () => {
+  // 2026-11-24 is a Tuesday; Israel is UTC+2 in November.
+  it.each([
+    ["2026-11-24T08:00:00Z", true],   // Tue 10:00
+    ["2026-11-24T06:00:00Z", false],  // Tue 08:00, before 08:30
+    ["2026-11-24T14:45:00Z", false],  // Tue 16:45, after 16:30
+    ["2026-11-27T11:00:00Z", true],   // Fri 13:00
+    ["2026-11-27T12:30:00Z", false],  // Fri 14:30, after 14:00
+    ["2026-11-28T09:00:00Z", false],  // Saturday
+  ])("%s → %s", (iso, open) => {
+    expect(isShopOpen(new Date(iso))).toBe(open);
   });
-  it("apologises when the customer is upset", () => {
-    expect(handoffReply("frustrated", true)).toMatch(/מצטער/);
+});
+
+describe("groupAlert / reminderAlert", () => {
+  it("names the reason in Asi's terms", () => {
+    expect(groupAlert({ reason: "discount", name: "דנה", phone: "972501234567", lastText: "יש הנחה?" })).toMatch(/הנחה/);
+    expect(groupAlert({ reason: "order_status", name: "דנה", phone: "972501234567", lastText: "יש עדכון?" })).toMatch(/ההזמנה/);
+  });
+  it("a reminder says how long the customer has been waiting", () => {
+    const r = reminderAlert({ reason: "wants_human", name: "דנה", phone: "972501234567", lastText: "אפשר נציג?", waitedMin: 17 });
+    expect(r).toMatch(/תזכורת/);
+    expect(r).toContain("17");
+    expect(r).toContain("https://wa.me/972501234567");
   });
   it("group alert carries the reason, the customer's words and a chat link", () => {
     const g = groupAlert({ reason: "frustrated", name: "דנה", phone: "972501234567", lastText: "בוט מעצבן" });

@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { buildNodes, OUT_DIR } from "../../scripts/n8n/build-tcenter-nodes.mjs";
@@ -69,15 +69,34 @@ describe("generated n8n Code nodes", () => {
       "Bot Allowed?": { chatId: CHAT, senderName: "דנה", mergedText: `${mergedText}\n[המערכת: עכשיו יום שלישי, השעה 10:00. העסק פתוח כרגע.]`, businessOpen: true },
     });
 
-    it("a request for a person → handoff with reply, alert and silence window", () => {
+    it("a request for a person → handoff: nothing to the customer, alert + silence + a row to remember it", () => {
       const out = runNode("friction-gate.js", { nodes: turn("אפשר לדבר עם נציג?"), input: [{}] });
       const j = out[0].json;
       expect(j.frictionAction).toBe("handoff");
       expect(j.frictionReason).toBe("wants_human");
-      expect(String(j.frictionReply)).toMatch(/העברתי את השיחה לצוות/);
+      expect(j.frictionReply).toBeNull();
       expect(String(j.frictionAlert)).toContain("https://wa.me/972501234567");
       expect(new Date(String(j.silencedUntil)).getTime()).toBeGreaterThan(Date.now());
+      expect(j.handoffRow).toMatchObject({ chat_id: CHAT, reason: "wants_human", last_text: "אפשר לדבר עם נציג?" });
       expect(j.chatId).toBe(CHAT); // the turn passes through for the agent branch
+    });
+
+    it("'מתי מוכן?' goes to Asi only when the Load Orders node found an order", () => {
+      const withOrder = runNode("friction-gate.js", {
+        nodes: { ...turn("מתי זה יהיה מוכן?"), "Friction: Load Orders": { chat_id: CHAT, status: "paid" } },
+        input: [{}],
+      });
+      expect(withOrder[0].json).toMatchObject({ frictionAction: "handoff", frictionReason: "order_status" });
+      const lead = runNode("friction-gate.js", { nodes: { ...turn("מתי זה יהיה מוכן?"), "Friction: Load Orders": {} }, input: [{}] });
+      expect(lead[0].json.frictionAction).toBe("continue");
+      // the node is optional: without it the gate still runs
+      expect(runNode("friction-gate.js", { nodes: turn("מתי זה יהיה מוכן?"), input: [{}] })[0].json.frictionAction).toBe("continue");
+    });
+
+    it("'זה בוט?' → the one honest line is the only reply", () => {
+      const out = runNode("friction-gate.js", { nodes: turn("זה בוט?"), input: [{}] });
+      expect(out[0].json).toMatchObject({ frictionAction: "handoff", frictionReason: "asks_if_bot" });
+      expect(String(out[0].json.frictionReply)).toMatch(/בוט/);
     });
 
     it("a normal message → continue, and exposes the last bot line for Repeat Guard", () => {
@@ -87,7 +106,7 @@ describe("generated n8n Code nodes", () => {
     });
 
     it("pending handoff → hold; the group is re-alerted once per 30 minutes, not on every message", () => {
-      const rows = [{ role: "bot", text: "בשמחה 🙏 העברתי את השיחה לצוות — מישהו מהצוות ימשיך איתך כאן בוואטסאפ בהקדם.", created_at: new Date(Date.now() - 10 * 60000).toISOString() }];
+      const rows = [{ role: "bot", text: "קיבלנו את הפנייה 🙏 נציג יחזור אליך ברגעים הקרובים.", created_at: new Date(Date.now() - 10 * 60000).toISOString() }];
       const staticData = {};
       const first = runNode("friction-gate.js", { nodes: turn("למה אף אחד לא עונה???"), input: rows, staticData });
       const second = runNode("friction-gate.js", { nodes: turn("הלו??"), input: rows, staticData });
@@ -99,14 +118,40 @@ describe("generated n8n Code nodes", () => {
   describe("repeat-guard.js", () => {
     const gate = { "Friction Gate": { lastBotText: "כמה יחידות תרצה?", businessOpen: true, mergedText: "32" } };
 
-    it("a verbatim repeat becomes a handoff", () => {
+    it("a verbatim repeat becomes a silent handoff", () => {
       const out = runNode("repeat-guard.js", { nodes: gate, input: [{ chatId: CHAT, senderName: "דנה", summary: "כמה יחידות תרצה? 🙂", isOrder: false }] });
-      expect(out[0].json).toMatchObject({ repeatBlocked: true, frictionAction: "handoff", frictionReason: "bot_loop" });
+      expect(out[0].json).toMatchObject({ repeatBlocked: true, frictionAction: "handoff", frictionReason: "bot_loop", frictionReply: null });
+      expect(out[0].json.handoffRow).toMatchObject({ chat_id: CHAT, reason: "bot_loop" });
     });
 
     it("anything else passes through untouched", () => {
       const out = runNode("repeat-guard.js", { nodes: gate, input: [{ chatId: CHAT, summary: "איזה צבע?", isOrder: false }] });
       expect(out[0].json).toMatchObject({ repeatBlocked: false, summary: "איזה צבע?" });
+    });
+  });
+
+  describe("handoff-reminder.js", () => {
+    const due = [
+      { id: 7, chat_id: CHAT, reason: "discount", name: "דנה", last_text: "יש הנחה?", alerted_at: new Date(Date.now() - 20 * 60000).toISOString() },
+      { foo: 1 },
+    ];
+
+    it("turns each due handoff into one reminder line (only while the shop is open)", () => {
+      vi.useFakeTimers();
+      try {
+        vi.setSystemTime(new Date("2026-11-24T08:00:00Z")); // Tue 10:00 Israel
+        const fresh = [{ ...due[0], alerted_at: new Date(Date.now() - 20 * 60000).toISOString() }, due[1]];
+        const out = runNode("handoff-reminder.js", { nodes: {}, input: fresh });
+        expect(out).toHaveLength(1);
+        expect(out[0].json.id).toBe(7);
+        expect(String(out[0].json.groupText)).toMatch(/תזכורת/);
+        expect(String(out[0].json.groupText)).toContain("20");
+
+        vi.setSystemTime(new Date("2026-11-28T09:00:00Z")); // Saturday
+        expect(runNode("handoff-reminder.js", { nodes: {}, input: fresh })).toEqual([]);
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 

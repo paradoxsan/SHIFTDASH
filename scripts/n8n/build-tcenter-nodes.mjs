@@ -59,9 +59,13 @@ return [{ json: {
     glue: `
 // ---- node ----
 // Input: "Friction: Load History" (HTTP GET chat_messages for this chat, newest 12, Always Output Data ON).
+// Optional: "Friction: Load Orders" (HTTP GET orders for this chat, last 21 days, Always Output Data ON)
+// — when present, "מתי מוכן?" from a customer with an order goes to Asi instead of the bot.
 const turn = $('Bot Allowed?').first().json;
 const history = historyBefore($input.all().map((i) => i.json), turn.mergedText);
-const d = decideFriction({ text: turn.mergedText, history, now: new Date(), businessOpen: turn.businessOpen !== false });
+let hasOrder = false;
+try { hasOrder = $('Friction: Load Orders').all().some((i) => i.json && i.json.chat_id); } catch (e) { hasOrder = false; }
+const d = decideFriction({ text: turn.mergedText, history, now: new Date(), hasOrder });
 const phone = String(turn.chatId || '').split('@')[0];
 
 // While a handoff is pending, re-alert the group at most every 30 minutes per chat.
@@ -78,10 +82,13 @@ return [{ json: {
   ...turn,
   frictionAction: d.action,            // continue | handoff | hold
   frictionReason: d.reason,
-  frictionReply: d.reply,              // the one line the customer gets (handoff only)
+  frictionReply: d.reply,              // null — except the honest "yes, it's the bot" line
   frictionNotify: notify,
   frictionAlert: notify ? groupAlert({ reason: d.reason, name: turn.senderName, phone, lastText: turn.mergedText }) : null,
   silencedUntil: new Date(Date.now() + FRICTION_CONFIG.holdHours * 3600000).toISOString(),
+  handoffRow: d.action === 'handoff'
+    ? { chat_id: turn.chatId, reason: d.reason, name: turn.senderName || null, last_text: cleanCustomerText(turn.mergedText).slice(0, 500) }
+    : null,
   lastBotText: lastBot ? lastBot.text : '',
 } }];
 `,
@@ -94,19 +101,44 @@ return [{ json: {
 // ---- node ----
 const p = $input.first().json;
 const gate = $('Friction Gate').first().json;
-const g = repeatGuard({ reply: p.summary, isOrder: p.isOrder, lastBotText: gate.lastBotText, businessOpen: gate.businessOpen !== false });
+const g = repeatGuard({ reply: p.summary, isOrder: p.isOrder, lastBotText: gate.lastBotText });
 if (!g.blocked) return [{ json: { ...p, repeatBlocked: false } }];
 const phone = String(p.chatId || '').split('@')[0];
 return [{ json: {
   ...p,
-  repeatBlocked: true,
+  repeatBlocked: true,                 // do NOT send p.summary; nothing goes to the customer
   frictionAction: 'handoff',
   frictionReason: 'bot_loop',
-  frictionReply: g.reply,
+  frictionReply: null,
   frictionNotify: true,
   frictionAlert: groupAlert({ reason: 'bot_loop', name: p.senderName, phone, lastText: gate.mergedText }),
   silencedUntil: new Date(Date.now() + FRICTION_CONFIG.holdHours * 3600000).toISOString(),
+  handoffRow: { chat_id: p.chatId, reason: 'bot_loop', name: p.senderName || null, last_text: cleanCustomerText(gate.mergedText).slice(0, 500) },
 } }];
+`,
+  },
+
+  "handoff-reminder.js": {
+    title: "Handoff Reminder (Schedule every 5 min → GET bot_handoffs_due → this → group + PATCH reminded_at)",
+    modules: ["lib/bot/friction.mjs"],
+    glue: `
+// ---- node ----
+// Input: rows from the bot_handoffs_due view (alerts nobody answered for 15+ minutes).
+const now = new Date();
+if (!isShopOpen(now)) return [];
+return $input.all()
+  .map((i) => i.json)
+  .filter((r) => r && r.id && r.chat_id)
+  .map((r) => ({ json: {
+    id: r.id,
+    groupText: reminderAlert({
+      reason: r.reason,
+      name: r.name,
+      phone: String(r.chat_id).split('@')[0],
+      lastText: r.last_text || '',
+      waitedMin: (now.getTime() - new Date(r.alerted_at).getTime()) / 60000,
+    }),
+  } }));
 `,
   },
 

@@ -36,8 +36,9 @@
 | קובץ | מה עושה |
 |---|---|
 | `lib/bot/takeover.mjs` | מסווג כל הודעה ידנית של אסי: **handling** (השתקה ל-90 דק', מתחדשת), **close** (השתקה עד חצות), **release** (הבוט חוזר מיד), **ignore** |
-| `lib/bot/friction.mjs` | לפני שהבוט עונה: מזהה בקשה לנציג, תלונה, כעס, ו"??"/"לא הבנת" שמצטברים. מעביר לצוות בהודעה אחת כנה, משתיק את הבוט בשיחה, ומתריע בקבוצה. בזמן שמחכים לנציג הבוט לא עונה יותר |
-| `templates/tcenter-sales/code-nodes/*.js` | ארבעה Code nodes מוכנים להדבקה, נבנים מהמודולים (`node scripts/n8n/build-tcenter-nodes.mjs`) |
+| `lib/bot/friction.mjs` | לפני שהבוט עונה: מזהה בקשה לנציג, תלונה, בקשת הנחה, "מה עם ההזמנה" (רק כשיש הזמנה), כעס, ו"??"/"לא הבנת" שמצטברים. **הבוט לא שולח כלום ללקוח**, נעצר בשיחה, ואסי מקבל התראה בקבוצה ותזכורת אם לא ענה. חריג אחד: על "זה בוט?" הבוט עונה שורה אחת כנה ("כן, זה הבוט…") ומעביר לאסי |
+| `templates/tcenter-sales/code-nodes/*.js` | חמישה Code nodes מוכנים להדבקה, נבנים מהמודולים (`node scripts/n8n/build-tcenter-nodes.mjs`) |
+| `supabase/data-plane/tcenter/0002_bot_handoffs.sql` | טבלת `bot_handoffs` + view `bot_handoffs_due` לתזכורות (תוספת בלבד) |
 | `tests/unit/tcenter-takeover.test.ts`, `friction.test.ts` | כל משפט בבדיקות לקוח מההודעות האמיתיות (בלי שמות וטלפונים) |
 | `tests/unit/tcenter-code-nodes.test.ts` | מריץ את ה-nodes עצמם בסביבת n8n מדומה, ונכשל אם הקבצים לא מעודכנים |
 
@@ -50,33 +51,8 @@
 
 ## 3. חיבור ב-n8n (ה-workflow החי, לא התבנית)
 
-> הגרסה החיה מתקדמת מהתבנית שבריפו (היא כבר כותבת ל-`chat_messages`). שמות ה-nodes למטה הם
-> מהתבנית: לוודא מול החי לפני הדבקה, ולעבוד על עותק.
-
-1. **Classify Takeover** (נתיב `IF Agent Replied`):
-   - להוסיף לפניו `Takeover: Read Current`: Supabase getAll על `human_mode` לפי `chat_id` של ה-webhook, **Always Output Data: ON**.
-   - להחליף את הקוד ב-`classify-takeover.js`.
-   - ב-`Mark Human Mode` לשנות את ה-body ל-
-     `{{ { chat_id: $json.chatId, active: $json.active, updated_at: $now.toISO(), silenced_until: $json.silencedUntil } }}`
-     (היום `active` קבוע ל-true, ו-release צריך לכתוב false).
-2. **Friction Gate** (בין `Language Gate (Hebrew)` ל-`T-CENTER Sales Agent`):
-   - `Friction: Load History`: HTTP GET
-     `https://<ref>.supabase.co/rest/v1/chat_messages?chat_id=eq.{{$('Bot Allowed?').first().json.chatId}}&order=created_at.desc&limit=12&select=role,text,created_at`
-     (credential `supabaseApi`, **Always Output Data: ON**).
-   - Code node בשם **`Friction Gate`** עם `friction-gate.js`.
-   - IF `{{$json.frictionAction === 'continue'}}`: ב-true לסוכן. ב-false:
-     - IF `frictionAction === 'handoff'`: שליחת `frictionReply` ללקוח, ו-upsert ל-`human_mode`
-       עם `active: true, silenced_until: $json.silencedUntil` (אותו HTTP כמו `Mark Human Mode`).
-     - IF `frictionNotify`: שליחת `frictionAlert` לקבוצה.
-3. **Repeat Guard** (בין `Parse Order` ל-`Send Summary / Reply`): `repeat-guard.js`. IF `repeatBlocked`:
-   ב-true לאותם nodes של ה-handoff מסעיף 2, וב-false ל-`Send Summary / Reply`. סיכומי הזמנה פטורים,
-   כי השליחה הזו משחררת את לינק התשלום.
-4. **Group Bot Command** (נתיב הקבוצה, ליד `QL: Filter`): IF על הקבוצה + `from_me` + `source != api`,
-   אחריו `group-bot-command.js`, אחריו upsert ל-`human_mode` (`active`, `silencedUntil`), ושליחת `confirm` לקבוצה.
-5. **בפרומפט של הסוכן:** להחליף "נציג יחזור אליך ברגעים הקרובים" ב"מישהו מהצוות ימשיך איתך כאן בהקדם".
-   53% מההבטחות לא התקיימו.
-6. **Esc: Gate:** כשהסוכן מעביר לנציג, לכתוב גם `human_mode` (12 שעות). כך הבוט מפסיק לדבר גם
-   בלי ה-Friction Gate.
+ההוראות המלאות, צעד אחרי צעד, כולל גיבוי, מצב צל, בדיקות וחזרה אחורה, נמצאות ב-
+**`docs/TCENTER-INSTALL-PROMPT.md`**. זה פרומפט להדבקה בסשן שיש לו גישה לשרת ה-n8n.
 
 ## 4. ברירות מחדל שאפשר לשנות
 | פרמטר | ערך | איפה |
@@ -86,9 +62,11 @@
 | השתקה אחרי העברה לנציג, אם אף אחד לא ענה | 12 שעות | `FRICTION_CONFIG.holdHours` |
 | כמה סימנים "רכים" צריך כדי להעביר | 2 ב-3 ההודעות האחרונות, תוך שעתיים | `FRICTION_CONFIG` |
 | התראה חוזרת לקבוצה בזמן המתנה | פעם ב-30 דק' לכל לקוח | `friction-gate.js` |
+| תזכורת לאסי כשהתראה לא נענתה | אחרי 15 דק', פעם אחת, רק בשעות הפעילות | `FRICTION_CONFIG.reminderMinutes` + view `bot_handoffs_due` |
 
 אחרי שינוי מודול: `node scripts/n8n/build-tcenter-nodes.mjs`, `npm test`, ולהדביק מחדש את ה-node.
 
 ## 5. מומלץ לפני הפעלה מלאה
-להריץ את ה-Friction Gate יומיים-שלושה **במצב צל**: לחבר רק את התראת הקבוצה בלי ההשתקה והתשובה ללקוח,
-ולראות שההתראות הגיוניות. הוולידציה עד עכשיו נעשתה על דגימות, לא על כל ההיסטוריה.
+להריץ את ה-Friction Gate יומיים-שלושה **במצב צל**: הבוט ממשיך לענות כרגיל, ורק התראה עם הסימון
+"[מצב צל]" נשלחת לקבוצה. כך רואים שההתראות הגיוניות לפני שהבוט באמת נעצר. הוולידציה עד עכשיו נעשתה
+על דגימות, לא על כל ההיסטוריה.
