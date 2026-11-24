@@ -354,7 +354,8 @@ function decideTakeover(m, now = new Date(), current = null) {
 // The owner replies to an alert card in the orders group with "בוט" (hand the
 // chat back) or "שקט" (quiet until tomorrow). The customer never sees it.
 
-const GROUP_RELEASE = /^\s*(?:בוט|🤖+|החזר\s+בוט|תחזיר\s+בוט|בוט\s+חזור)(?![א-ת])/u;
+// Longest alternatives first: a bare "בוט" would otherwise eat "בוט חזור" and leave "חזור" as junk.
+const GROUP_RELEASE = /^\s*(?:החזר\s+בוט|תחזיר\s+בוט|בוט\s+חזור|בוט|🤖+)(?![א-ת])/u;
 const GROUP_SILENCE = /^\s*(?:שקט|השתק|🔇|כבה\s+בוט|בוט\s+כבוי)(?![א-ת])/u;
 
 function toChatId(raw) {
@@ -372,10 +373,11 @@ function parseGroupCommand(text, quotedText) {
   const t = String(text || "").trim();
   let action = null;
   let rest = "";
-  const r = t.match(GROUP_RELEASE);
-  const s = r ? null : t.match(GROUP_SILENCE);
-  if (r) { action = "release"; rest = t.slice(r[0].length); }
-  else if (s) { action = "close"; rest = t.slice(s[0].length); }
+  // Silence first, so "בוט כבוי" is not read as "בוט" + junk.
+  const s = t.match(GROUP_SILENCE);
+  const r = s ? null : t.match(GROUP_RELEASE);
+  if (s) { action = "close"; rest = t.slice(s[0].length); }
+  else if (r) { action = "release"; rest = t.slice(r[0].length); }
   if (!action) return null;
 
   rest = rest.trim();

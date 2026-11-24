@@ -305,7 +305,9 @@ const input = $input.first().json;
 // Fail open: if anything here throws, the agent answers exactly as before this node existed.
 try {
 const turn = $('Bot Allowed?').first().json;
-const history = historyBefore($('Mem: Load History').all().map((i) => i.json), turn.mergedText);
+// Mem: Load History already excludes this turn (message_id != turnKey): drop nothing as "part of the
+// current message", or a customer repeating "לא הבנתי" would never count twice.
+const history = historyBefore($('Mem: Load History').all().map((i) => i.json), '');
 const d = decideFriction({ text: turn.mergedText, history, now: new Date(), businessOpen: turn.businessOpen !== false });
 const phone = String(turn.chatId || '').split('@')[0];
 return [{ json: {

@@ -106,6 +106,11 @@ describe("generated n8n Code nodes", () => {
       expect(out[0].json).toMatchObject({ frictionAction: "continue", frictionAlert: null, frictionReply: null });
     });
 
+    it("the customer repeating the same soft signal counts twice (history already excludes this turn)", () => {
+      const out = runNode("friction-gate.js", { nodes: turn("לא הבנתי", [{ role: "user", text: "לא הבנתי", created_at: minAgo(3) }]) });
+      expect(out[0].json).toMatchObject({ frictionAction: "handoff", frictionReason: "frustrated" });
+    });
+
     it("after a handoff promise the bot still answers a new question (no silent hold)", () => {
       const rows = [{ role: "bot", text: "קיבלנו את הפנייה 🙏 נציג יחזור אליך ברגעים הקרובים.", created_at: minAgo(10) }];
       const out = runNode("friction-gate.js", { nodes: turn("ומה המחיר ל-20 חולצות?", rows) });

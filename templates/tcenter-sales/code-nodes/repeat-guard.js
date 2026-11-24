@@ -304,7 +304,7 @@ const p = $input.first().json;
 // Fail open: if anything here throws, the reply is sent exactly as before this node existed.
 try {
 const turn = $('Bot Allowed?').first().json;
-const history = historyBefore($('Mem: Load History').all().map((i) => i.json), turn.mergedText);
+const history = historyBefore($('Mem: Load History').all().map((i) => i.json), ''); // this turn is already excluded
 const g = repeatGuard({ reply: p.summary, isOrder: p.isOrder, history, now: new Date() });
 if (!g.blocked) return [{ json: { ...p, repeatBlocked: false }, pairedItem: { item: 0 } }];
 const phone = String(turn.chatId || '').split('@')[0];

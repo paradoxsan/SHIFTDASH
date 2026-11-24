@@ -211,6 +211,11 @@ describe("parseGroupCommand — managing a chat from the orders group", () => {
     expect(parseGroupCommand("שקט", alertCard)).toEqual({ action: "close", chatId: "972501234567@s.whatsapp.net" });
   });
 
+  it("every documented alias works, including the two-word ones that start with 'בוט'", () => {
+    for (const t of ["בוט", "בוט חזור", "החזר בוט", "תחזיר בוט", "🤖"]) expect(parseGroupCommand(t, alertCard)?.action, t).toBe("release");
+    for (const t of ["שקט", "השתק", "כבה בוט", "בוט כבוי", "🔇"]) expect(parseGroupCommand(t, alertCard)?.action, t).toBe("close");
+  });
+
   it("a local phone number typed after the command works without a quoted card", () => {
     expect(parseGroupCommand("בוט 050-1234567", "")).toEqual({ action: "release", chatId: "972501234567@s.whatsapp.net" });
   });
