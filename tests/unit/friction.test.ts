@@ -9,6 +9,7 @@ import {
   groupAlert,
   historyBefore,
   repeatGuard,
+  lastBotLine,
 } from "../../lib/bot/friction.mjs";
 
 const NOW = new Date("2026-11-24T10:00:00Z");
@@ -96,6 +97,14 @@ describe("detectFriction — complaints go to a person, never to the bot", () =>
     "ואת זה אפשר לבטל?",
     "אל תוסיף שמתי בטעות עוד m",
     "בוקר טוב אדוני, יש חדש? הם כבר יצאו לטיול",
+    // false positives found by the 45-day replay: pre-sale "חסר לי", and questions
+    "סמול- 13 מדיום- 7 לארג- 7 עדיין חסר לי שתי מידות , אשלח בקרוב:)",
+    "היי חסר לי גיליון אחד אני יכולה לשלוח לך ותדפיס לי עד 16:30?",
+    "חסרים לי עוד 6 הורים שלא שילמו",
+    "כרגע עוד בשלב בירורים, לא אוכל לסגור הזמנה כרגע, כי עוד חסרות לי מידות מאנשים",
+    "ההדפס לא מתקלף בכביסה נכון?",
+    "זה טוב אבל? לא יצא מטושטש?",
+    "אם החולצה תגיע באיכות לא טובה, יהיה לי אפשרות לקבל החזר כספי?",
   ])("ordinary order talk is not a complaint: %s", (text) => {
     expect(detectFriction(text).complaint).toBe(false);
   });
@@ -159,28 +168,17 @@ describe("decideFriction — what the bot does with this message", () => {
     expect(decideFriction({ text: "??", history, now: NOW }).action).toBe("continue");
   });
 
-  it("breaks the loop: the bot asked the same question twice → hand off instead of a third time", () => {
-    // real: "32" → "מה הכמות לתיקי הבד?" → "32" → "כמה תיקי בד תרצי?" → "חחחח רובוט לא מפותח"
+  it("a re-asked question is NOT a loop to hand off (replay: 176 such handoffs, nearly all normal selling)", () => {
     const history = [b("כמה יחידות תרצה?", 6), u("32", 5), b("כמה יחידות תרצה?", 4)];
-    expect(decideFriction({ text: "32", history, now: NOW })).toMatchObject({ action: "handoff", reason: "bot_loop" });
+    expect(decideFriction({ text: "32", history, now: NOW }).action).toBe("continue");
+    // ...including the "כן" that approves an order summary
+    const s = "הנה סיכום ההזמנה: • עיצוב 1: חולצה כותנה — ורוד 35 יח'";
+    expect(decideFriction({ text: "כן", history: [b(s, 6), u("רגע", 5), b(s, 4)], now: NOW }).action).toBe("continue");
   });
 
-  it("while a handoff is pending, the bot stays silent instead of repeating 'קיבלנו את הפנייה'", () => {
-    const history = [u("אפשר נציג", 30), b("קיבלנו את הפנייה 🙏 נציג יחזור אליך ברגעים הקרובים.", 29)];
-    const d = decideFriction({ text: "הלו?", history, now: NOW });
-    expect(d.action).toBe("hold");
-    expect(d.reply).toBeNull();
-  });
-
-  it("a pending handoff that a human already answered is no longer pending", () => {
-    const history = [b("קיבלנו את הפנייה 🙏 נציג יחזור אליך ברגעים הקרובים.", 60), a("היי", 50), u("תודה", 40), b("בשמחה 🙏", 39)];
-    expect(decideFriction({ text: "עוד שאלה, יש גם כובעים?", history, now: NOW }).action).toBe("continue");
-  });
-
-  it("while holding, the group is re-alerted only when the customer is getting upset", () => {
-    const history = [b("העברתי את השיחה לצוות 🙏", 30)];
-    expect(decideFriction({ text: "תודה", history, now: NOW }).notifyGroup).toBe(false);
-    expect(decideFriction({ text: "למה אף אחד לא עונה???", history, now: NOW }).notifyGroup).toBe(true);
+  it("after a handoff promise the bot keeps answering (replay: a silent hold would have muted ~1,800 real answers)", () => {
+    const history = [u("כמה עולים גרביים?", 30), b("על המוצר הזה המחיר נקבע מול הצוות 🙏 נציג יחזור אליך עם מחיר מדויק בהקדם.", 29)];
+    expect(decideFriction({ text: "ו-20 חולצות כותנה שחורות?", history, now: NOW }).action).toBe("continue");
   });
 
   it("garbage history does not throw", () => {
@@ -223,18 +221,35 @@ describe("isRepeat — last line of defence before sending", () => {
   });
 });
 
-describe("repeatGuard — what Repeat Guard does with the agent's reply", () => {
-  it("swaps a verbatim repeat for one honest handoff line", () => {
-    const g = repeatGuard({ reply: "כמה יחידות תרצה? 🙂", isOrder: false, lastBotText: "כמה יחידות תרצה?" });
-    expect(g.blocked).toBe(true);
-    expect(g.reply).toMatch(/העברתי את השיחה לצוות/);
+describe("repeatGuard — the handoff promise is never sent twice in a row", () => {
+  const OPEN = "קיבלנו את הפנייה 🙏 נציג יחזור אליך ברגעים הקרובים.";
+  const CLOSED = "קיבלנו את הפנייה 🙏 כרגע אנחנו מחוץ לשעות הפעילות, ונציג יחזור אליך כאן בוואטסאפ עם פתיחת שעות הפעילות הקרובות";
+  it("blocks the canned line when it was the bot's last line and no human answered since", () => {
+    expect(repeatGuard({ reply: OPEN, isOrder: false, history: [u("אפשר נציג", 30), b(OPEN, 29)], now: NOW }).blocked).toBe(true);
+    expect(repeatGuard({ reply: CLOSED, isOrder: false, history: [b(OPEN, 29), u("??", 5)], now: NOW }).blocked).toBe(true);
+  });
+  it("blocks a near-verbatim handoff line the model wrote itself", () => {
+    const line = "העברתי את הבקשה להדמיה לנציג, והוא יחזור אליך כאן עם פתיחת שעות הפעילות הקרובות 🙏";
+    expect(repeatGuard({ reply: line, isOrder: false, history: [b(line, 3)], now: NOW }).blocked).toBe(true);
+  });
+  it("a human in between, or a promise older than holdHours, lets it go out", () => {
+    expect(repeatGuard({ reply: OPEN, isOrder: false, history: [b(OPEN, 30), a("היי", 20)], now: NOW }).blocked).toBe(false);
+    expect(repeatGuard({ reply: OPEN, isOrder: false, history: [b(OPEN, 13 * 60)], now: NOW }).blocked).toBe(false);
+  });
+  it("never blocks a non-handoff reply, even a verbatim re-asked question", () => {
+    expect(repeatGuard({ reply: "כמה יחידות תרצה? 🙂", isOrder: false, history: [b("כמה יחידות תרצה?", 2)], now: NOW }).blocked).toBe(false);
+  });
+  it("a handoff line after a sales line goes out (first promise)", () => {
+    expect(repeatGuard({ reply: OPEN, isOrder: false, history: [b("איזה צבע?", 2)], now: NOW }).blocked).toBe(false);
   });
   it("never blocks an order summary — that send releases the payment link", () => {
-    const s = "הנה סיכום ההזמנה: • עיצוב 1: חולצה כותנה שרוול קצר — לבן 10 יח'";
-    expect(repeatGuard({ reply: s, isOrder: true, lastBotText: s }).blocked).toBe(false);
+    const s = "הנה סיכום ההזמנה: • עיצוב 1: חולצה כותנה שרוול קצר — לבן 10 יח' — נציג יחזור אליך";
+    expect(repeatGuard({ reply: s, isOrder: true, history: [b(s, 2)], now: NOW }).blocked).toBe(false);
   });
-  it("lets a new message through", () => {
-    expect(repeatGuard({ reply: "איזה צבע?", isOrder: false, lastBotText: "כמה יחידות תרצה?" })).toEqual({ blocked: false, reply: null });
+  it("lastBotLine is null once a human spoke after the bot", () => {
+    expect(lastBotLine([b("x", 3), a("y", 2), u("z", 1)])).toBeNull();
+    expect(lastBotLine([a("y", 3), b("x", 2), u("z", 1)])?.text).toBe("x");
+    expect(lastBotLine(undefined as never)).toBeNull();
   });
 });
 
@@ -252,5 +267,10 @@ describe("handoffReply / groupAlert", () => {
     expect(g).toContain("בוט מעצבן");
     expect(g).toContain("https://wa.me/972501234567");
     expect(g).toMatch(/הבוט הושתק/);
+  });
+  it("a 'still waiting' card does not claim the bot was silenced or offer to bring it back", () => {
+    const g = groupAlert({ reason: "still_waiting", name: "דנה", phone: "972501234567", lastText: "??", silenced: false });
+    expect(g).toContain("עדיין מחכה לנציג");
+    expect(g).not.toMatch(/הושתק|השיבו/);
   });
 });

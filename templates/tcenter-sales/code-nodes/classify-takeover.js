@@ -214,9 +214,10 @@ function resolveCallback(req, mode, now = new Date()) {
 
 
 const TAKEOVER_CONFIG = {
-  // Was 30. After a 30-minute pause the owner had to step back in within 3h in
-  // ~half of the bot's comebacks — he was still in the conversation.
-  handlingMinutes: 90,
+  // The owner's own call (2026-08-07, V2.14.0): 2 h, renewed by every manual
+  // message. Keep it at or under 125 min: "Rep: Stamp" (V2.40.0) treats a silence
+  // that short as a rep window and lets the bot answer after 15 quiet minutes.
+  handlingMinutes: 120,
   // Longer than this and it's narration (a long voice transcript, a forwarded
   // brief), not a status line — treat as handling, never as close.
   maxCloseWords: 40,
@@ -230,7 +231,7 @@ const RELEASE = /^\s*(?:🤖+|#בוט)\s*$/u;
 const PAYMENT_LINK = /ezcount\.co\.il/i;
 
 // "זה לא מוכן", "עוד לא מוכן", "טרם שולם" — never a close.
-const NEGATED = rx(`${HB}(?:לא|טרם)\\s+(?:\\S+\\s+){0,2}(?:מוכן|מוכנה|מוכנים|שולם|נסגר|סגור|יצא)${HE}`);
+const NEGATED = rx(`${HB}(?:לא|טרם)\\s+(?:\\S+\\s+){0,2}(?:מוכן|מוכנה|מוכנים|שולם|שולמה|שילם|שילמה|שילמת|שילמתם|נסגר|סגור|יצא)${HE}`);
 // The owner quoting the customer ("הוא אמר ששולם") is not the owner declaring it.
 const REPORTED = rx(`${HB}(?:אמר|אמרה|כתב|כתבה|טוען|טוענת|לדבריו|לדבריה|שואל|שואלת|מבקש|מבקשת)${HE}`);
 
@@ -246,7 +247,8 @@ const CLOSE_RULES = [
   ["will_notify", rx(`${HB}(?:אודיע|נודיע|אעדכן|נעדכן)\\s+(?:לך|לכם|אותך|אותכם)${HE}|${HB}(?:תקבל|תקבלי|תקבלו)\\s+הודעה${HE}`)],
   ["in_production", /עובדים\s+על\s+ההזמנה|מטפל\s+בהזמנה|קיבלתי\s+את\s+ההזמנה/],
   ["payment_request", /(?:שוליח|שולח|שלחתי|שולחת|שלחנו|מוציא)\s+(?:לך\s+|לכם\s+)?(?:לינק|קישור)|(?:להעביר|תעביר|תעבירי|תעבירו)\s+(?:את\s+ה)?תשלום/],
-  ["paid", rx(`${HB}(?:שולם|שולמה|שילמת|שילמתם)${HE}|התשלום\\s+(?:עבר|התקבל)|קיבלתי\\s+(?:את\\s+)?ה?תשלום`)],
+  // Not "שילמת": the owner writes it mostly to ask or dispute ("איך שילמת", "כן אבל שילמת 385").
+  ["paid", rx(`${HB}(?:שולם|שולמה)${HE}|התשלום\\s+(?:עבר|התקבל)|קיבלתי\\s+(?:את\\s+)?ה?תשלום`)],
   ["progress", /^\s*(?:תודה\s+)?(?:מתקדם|מתקדמים|מתקדמת)\s*[.!]*\s*$/],
   ["closed", /^\s*(?:סגור|סגורה|נסגר|נסגרה)(?:\s+(?:תודה|אחי))?\s*[.!]*\s*$/],
 ];
@@ -395,7 +397,9 @@ function parseGroupCommand(text, quotedText) {
 // Input: "Takeover: Read Current" (Supabase getAll human_mode by chat_id, Always Output Data ON).
 const msg = $('Webhook (WHAPI In)').first().json.body.messages[0];
 const current = $input.all().map((i) => i.json).find((r) => r && r.chat_id) || null;
-const d = decideTakeover(msg, new Date(), current);
+let d;
+try { d = decideTakeover(msg, new Date(), current); }
+catch (e) { d = { action: 'silence', kind: 'handling', reason: 'error: ' + String(e && e.message || e), row: { active: true, silenced_until: new Date(Date.now() + TAKEOVER_CONFIG.handlingMinutes * 60000).toISOString() } }; }
 if (d.action === 'ignore') return [];
 return [{ json: {
   chatId: msg.chat_id,

@@ -92,6 +92,11 @@ describe("classifyOwnerMessage — the owner is mid-conversation → handling (s
     "מה המידות",
     "45ש לקפצון",
     "בכמה יחידות מדובר??",
+    // the 45-day replay closed these until midnight; the owner is disputing or asking about payment
+    "ההזמנה לא שולמה",
+    "לא שילמת",
+    "איך שילמת",
+    "כן אבל שילמת 385",
   ])("%s", (body) => {
     expect(kind(text(body))).toBe("handling");
   });

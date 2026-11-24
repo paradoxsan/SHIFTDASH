@@ -41,7 +41,9 @@ const NODES = {
 // Input: "Takeover: Read Current" (Supabase getAll human_mode by chat_id, Always Output Data ON).
 const msg = $('Webhook (WHAPI In)').first().json.body.messages[0];
 const current = $input.all().map((i) => i.json).find((r) => r && r.chat_id) || null;
-const d = decideTakeover(msg, new Date(), current);
+let d;
+try { d = decideTakeover(msg, new Date(), current); }
+catch (e) { d = { action: 'silence', kind: 'handling', reason: 'error: ' + String(e && e.message || e), row: { active: true, silenced_until: new Date(Date.now() + TAKEOVER_CONFIG.handlingMinutes * 60000).toISOString() } }; }
 if (d.action === 'ignore') return [];
 return [{ json: {
   chatId: msg.chat_id,
@@ -58,32 +60,32 @@ return [{ json: {
     modules: ["lib/bot/friction.mjs"],
     glue: `
 // ---- node ----
-// Input: "Friction: Load History" (HTTP GET chat_messages for this chat, newest 12, Always Output Data ON).
+// Between "Language Gate (Hebrew)" and the agent. Passes its input through untouched (the
+// agent reads $('Draft: Context')); adds friction* fields only. History = "Mem: Load History",
+// already loaded this turn (newest 40, current turn excluded, Always Output Data ON).
+const input = $input.first().json;
+// Fail open: if anything here throws, the agent answers exactly as before this node existed.
+try {
 const turn = $('Bot Allowed?').first().json;
-const history = historyBefore($input.all().map((i) => i.json), turn.mergedText);
+const history = historyBefore($('Mem: Load History').all().map((i) => i.json), turn.mergedText);
 const d = decideFriction({ text: turn.mergedText, history, now: new Date(), businessOpen: turn.businessOpen !== false });
 const phone = String(turn.chatId || '').split('@')[0];
-
-// While a handoff is pending, re-alert the group at most every 30 minutes per chat.
-let notify = d.notifyGroup;
-if (notify && d.action === 'hold') {
-  const sd = $getWorkflowStaticData('global');
-  sd.frictionAlerts = sd.frictionAlerts || {};
-  if (Date.now() - (sd.frictionAlerts[phone] || 0) < 30 * 60000) notify = false;
-  else sd.frictionAlerts[phone] = Date.now();
-}
-
-const lastBot = history.filter((h) => h.role === 'bot').slice(-1)[0];
 return [{ json: {
-  ...turn,
-  frictionAction: d.action,            // continue | handoff | hold
+  ...input,
+  frictionAction: d.action,            // continue | handoff
   frictionReason: d.reason,
+  frictionSignals: d.signals,
+  frictionChatId: turn.chatId,
   frictionReply: d.reply,              // the one line the customer gets (handoff only)
-  frictionNotify: notify,
-  frictionAlert: notify ? groupAlert({ reason: d.reason, name: turn.senderName, phone, lastText: turn.mergedText }) : null,
-  silencedUntil: new Date(Date.now() + FRICTION_CONFIG.holdHours * 3600000).toISOString(),
-  lastBotText: lastBot ? lastBot.text : '',
-} }];
+  frictionAlert: d.action === 'handoff' ? groupAlert({ reason: d.reason, name: turn.senderName, phone, lastText: turn.mergedText }) : null,
+  frictionSilencedUntil: new Date(Date.now() + FRICTION_CONFIG.holdHours * 3600000).toISOString(),
+  // What "Friction: Save Turn" stores, the way Mem: Build Turn does: the customer's words, no system note.
+  frictionMemUser: String(turn.rawText != null ? turn.rawText : (turn.mergedText || '')).replace(/\\[המערכת:[^\\]]*\\]/g, '').trim(),
+  frictionTurnKey: turn.turnKey || null,
+}, pairedItem: { item: 0 } }];
+} catch (e) {
+  return [{ json: { ...input, frictionAction: 'continue', frictionError: String(e && e.message || e) }, pairedItem: { item: 0 } }];
+}
 `,
   },
 
@@ -92,21 +94,32 @@ return [{ json: {
     modules: ["lib/bot/friction.mjs"],
     glue: `
 // ---- node ----
+// Input: "Parse Order". A blocked reply is not sent: the turn goes to "Mem: Save Silenced Inbound"
+// (needs chatId / rawText / turnKey) and, at most every 30 min per chat, a card to the orders group.
 const p = $input.first().json;
-const gate = $('Friction Gate').first().json;
-const g = repeatGuard({ reply: p.summary, isOrder: p.isOrder, lastBotText: gate.lastBotText, businessOpen: gate.businessOpen !== false });
-if (!g.blocked) return [{ json: { ...p, repeatBlocked: false } }];
-const phone = String(p.chatId || '').split('@')[0];
+// Fail open: if anything here throws, the reply is sent exactly as before this node existed.
+try {
+const turn = $('Bot Allowed?').first().json;
+const history = historyBefore($('Mem: Load History').all().map((i) => i.json), turn.mergedText);
+const g = repeatGuard({ reply: p.summary, isOrder: p.isOrder, history, now: new Date() });
+if (!g.blocked) return [{ json: { ...p, repeatBlocked: false }, pairedItem: { item: 0 } }];
+const phone = String(turn.chatId || '').split('@')[0];
+const sd = $getWorkflowStaticData('global');
+sd.repeatAlerts = sd.repeatAlerts || {};
+for (const k in sd.repeatAlerts) if (Date.now() - sd.repeatAlerts[k] > 24 * 3600000) delete sd.repeatAlerts[k];
+const notify = Date.now() - (sd.repeatAlerts[phone] || 0) >= 30 * 60000;
+if (notify) sd.repeatAlerts[phone] = Date.now();
 return [{ json: {
   ...p,
   repeatBlocked: true,
-  frictionAction: 'handoff',
-  frictionReason: 'bot_loop',
-  frictionReply: g.reply,
-  frictionNotify: true,
-  frictionAlert: groupAlert({ reason: 'bot_loop', name: p.senderName, phone, lastText: gate.mergedText }),
-  silencedUntil: new Date(Date.now() + FRICTION_CONFIG.holdHours * 3600000).toISOString(),
-} }];
+  chatId: turn.chatId,
+  rawText: String(turn.rawText != null ? turn.rawText : (turn.mergedText || '')).replace(/\\[המערכת:[^\\]]*\\]/g, '').trim(),
+  turnKey: turn.turnKey || null,
+  frictionAlert: notify ? groupAlert({ reason: 'still_waiting', name: turn.senderName, phone, lastText: turn.mergedText, silenced: false }) : '',
+}, pairedItem: { item: 0 } }];
+} catch (e) {
+  return [{ json: { ...p, repeatBlocked: false, repeatError: String(e && e.message || e) }, pairedItem: { item: 0 } }];
+}
 `,
   },
 

@@ -6,26 +6,32 @@
 //
 // Built from what actually went wrong in 45 days of T-Center chats:
 //   • The bot answered "קיבלנו את הפנייה 🙏 נציג יחזור אליך ברגעים הקרובים" ~840
-//     times — and again after EVERY new customer message while they waited (~190
-//     repeats). Half of those customers waited over an hour; ~150 never got a
-//     human. "Moments" was a promise the shop could not keep.
+//     times — and again after new customer messages while they waited (~380
+//     near-verbatim repeats). Half of those customers waited over an hour.
 //   • Customers who asked for a person sometimes got the next sales question.
-//   • The bot re-asked a question it had just asked ("רובוט לא מפותח").
-//   • Post-sale complaints ("יצאו לא טוב", "מתקלף") were answered by the bot.
+//   • Post-sale complaints ("יצאו לא טוב", "מתקלף", "חסר לי סוודר") were answered by the bot.
 //
 // So: a request for a person, a complaint, or real anger hands off at once —
 // one honest message, the bot goes quiet in that chat, the orders group is
 // alerted. Softer signals ("??", "לא הבנתי", "זה בוט?") only hand off when they
-// pile up. While a handoff is pending the bot says nothing more to the customer.
+// pile up. After the agent answers, the canned "we got your request" line is
+// never sent twice in a row (repeatGuard).
+//
+// Replayed over 45 days (15.6k bot turns) before going live. Two earlier rules
+// were removed because of that replay — don't bring them back without one:
+//   • "stay silent while a handoff is pending" muted ~1,800 real answers
+//     (quotes, order summaries, size confirmations): the bot mentions "נציג
+//     יחזור" in many replies where it keeps selling.
+//   • "the bot's last two lines were the same → hand off" fired 176 times, almost
+//     always on a normal re-asked question, once on the "כן" that approves an order.
 //
 // Plain .mjs on purpose (see takeover.mjs): inlined verbatim into the n8n
 // "Friction Gate" / "Repeat Guard" Code nodes. Edit the module, never the node.
 
 const FRICTION_CONFIG = {
-  holdHours: 12,      // a pending handoff keeps the bot quiet this long if nobody answers
+  holdHours: 12,      // a handoff silences the bot this long if nobody answers
   recentMinutes: 120, // soft signals older than this don't add up
   recentUserTurns: 3, // ...and only the customer's last few messages count
-  loopMinutes: 60,    // the same bot line twice within this window = a loop
 };
 
 const L = "\\u05D0-\\u05EA";
@@ -46,6 +52,16 @@ function cleanCustomerText(raw) {
     .trim();
 }
 
+/** Drop the sentences that are questions: "ההדפס לא מתקלף בכביסה נכון?" is not a complaint. */
+function statementsOnly(text) {
+  return text
+    .split(/(?<=[?!.\n])/)
+    .filter((s) => !/[?؟]\s*$/.test(s))
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 // ── Signals ──────────────────────────────────────────────────────────────────
 
 const PERSON = `(?:ש|ל|ה|מ|ב)?(?:נציג(?:ה)?|בן\\s*אדם|בנאדם|אדם\\s+אמיתי|מישהו\\s+(?:אמיתי|מהצוות|אנושי)|מנהל(?:ת)?|אסי|הבעלים)${HE}`;
@@ -61,6 +77,7 @@ const WANTS_HUMAN = [
   rx(`${HB}(?:אפשר|תוכל|תוכלו|יכול|יכולה|יכולים|רוצה|מבקש|מבקשת|אשמח)${HE}.{0,15}(?:להתקשר|לדבר\\s+בטלפון|שיחה\\s+טלפונית|לענות\\s+לטלפון|תתקשרו|שתתקשר|שיתקשרו)`),
 ];
 
+// Matched against statements only (questions dropped).
 const COMPLAINT = [
   // "יש לי בעיה עם…", but not the conditional "אם יש בעיה עם השמות תגידו"
   /(?<!אם\s)(?:יש\s+לי|יש|קיימת|היתה|הייתה)\s+(?:בעיה|תקלה|טעות)\s+(?:עם|ב)/u,
@@ -69,7 +86,8 @@ const COMPLAINT = [
   /(?:יצא|יצאו|יצאה)\s+(?:לא\s+טוב|עקום|עקומה|הפוך|מטושטש)/u,
   /לא\s+מה\s+ש(?:הזמנתי|ביקשתי|סיכמנו|אמרתם)/u,
   /(?:לבטל|ביטול)\s+(?:את\s+)?ה?הזמנה|החזר\s+כספי|רוצה\s+(?:את\s+)?הכסף|(?:איאלץ|נאלץ|אצטרך)\s+לבטל/u,
-  rx(`${HB}(?:ו|ש)?חסר(?:ים|ות|ה)?\\s+(?:לי|לנו)${HE}`), // "וחסר לי קפוצ'ון"
+  // "וחסר לי קפוצ'ון" — but not the pre-sale "עדיין חסר לי שתי מידות" / "חסר לי גיליון"
+  rx(`${HB}(?:ו|ש)?חסר(?:ים|ות|ה)?\\s+(?:לי|לנו)${HE}(?!\\s+(?:עוד\\s+|רק\\s+)?(?:\\S+\\s+)?(?:מידות|מידה|גיליון|הורים|אנשים|פרטים|עיצוב|גרפיקה|שמות)${HE})`),
   /(?:חויבתי|חייבתי|חייבו\s+אותי)\s+פעמיים|(?:תשלום|חיוב)\s+כפול/u,
 ];
 
@@ -97,9 +115,10 @@ const SOFT = [
  */
 function detectFriction(raw) {
   const t = cleanCustomerText(raw);
+  const stmt = statementsOnly(t);
   const signals = [];
   const wantsHuman = WANTS_HUMAN.some((re) => re.test(t));
-  const complaint = COMPLAINT.some((re) => re.test(t));
+  const complaint = !!stmt && COMPLAINT.some((re) => re.test(stmt));
   const hard = HARD.some((re) => re.test(t));
   if (wantsHuman) signals.push("wants_human");
   if (complaint) signals.push("complaint");
@@ -155,39 +174,57 @@ function historyBefore(rows, currentText, limit = 12) {
   return hist.slice(-limit);
 }
 
-/**
- * Before sending the agent's reply: is it the line we just sent?
- * Order summaries are exempt — the send after a summary is where the payment
- * link gets released (Approval Gate), and blocking it would cost a sale; a
- * summary loop still gets caught by the customer's own reaction ("??", "שוב").
- * @returns {{blocked: boolean, reply: string|null}} reply = the handoff line to send instead
- */
-function repeatGuard({ reply, isOrder, lastBotText, businessOpen = true }) {
-  if (isOrder === true || !isRepeat(reply, lastBotText)) return { blocked: false, reply: null };
-  return { blocked: true, reply: handoffReply("bot_loop", businessOpen !== false) };
-}
-
-// ── Decision ─────────────────────────────────────────────────────────────────
-
-/** Bot lines that promise a human. The replies below match it too, so the turn
- *  after a handoff is recognised as "still waiting". */
+/** Bot lines that promise a human. */
 const HANDOFF_LINE = /קיבלנו את הפנייה|העברתי את (?:השיחה|הבקשה|הפנייה)|נציג\s+(?:יחזור|ימשיך|יענה)|הצוות\s+(?:יחזור|ימשיך)|מישהו מהצוות/u;
+/** The fixed "we got it, a rep will get back to you" line (open- and closed-hours versions). */
+const CANNED_HANDOFF = /קיבלנו את הפנייה/u;
 
 function ageMin(h, now) {
   const t = new Date(h.at).getTime();
   return Number.isNaN(t) ? Infinity : (now.getTime() - t) / 60000;
 }
 
+/** The bot's last line in `history` (oldest first), or null if a human spoke after it. */
+function lastBotLine(history) {
+  const hist = Array.isArray(history) ? history : [];
+  for (let i = hist.length - 1; i >= 0; i--) {
+    const h = hist[i];
+    if (!h || typeof h !== "object") continue;
+    if (h.role === "agent") return null;
+    if (h.role === "bot" && typeof h.text === "string") return h;
+  }
+  return null;
+}
+
+/**
+ * After the agent answers, before sending: is this the handoff promise we already
+ * made, with no human in between? Then say nothing — the customer already has the
+ * promise, and saying it again is what made them call the bot "רובוט לא מפותח".
+ * Any other reply goes out, including a re-asked sales question: the replay showed
+ * those are normal selling (~260 in 45 days), not a loop worth handing off.
+ * Order summaries are exempt — that send releases the payment link (Approval Gate).
+ * @returns {{blocked: boolean}}
+ */
+function repeatGuard({ reply, isOrder, history = [], now = new Date() }) {
+  const out = String(reply == null ? "" : reply);
+  if (isOrder === true || !HANDOFF_LINE.test(out)) return { blocked: false };
+  const last = lastBotLine(history);
+  if (!last || !HANDOFF_LINE.test(last.text) || ageMin(last, now) > FRICTION_CONFIG.holdHours * 60) return { blocked: false };
+  const same = isRepeat(out, last.text) || (CANNED_HANDOFF.test(out) && CANNED_HANDOFF.test(last.text));
+  return { blocked: same };
+}
+
+// ── Decision ─────────────────────────────────────────────────────────────────
+
 /**
  * @param {{text: string, history?: Array<{role: string, text: string, at: string}>,
  *          now?: Date, businessOpen?: boolean}} input
  *   history = the chat's recent messages BEFORE this one, oldest first
  *   (role: "user" | "bot" | "agent").
- * @returns {{action: "continue"|"handoff"|"hold", reason: string|null, reply: string|null,
+ * @returns {{action: "continue"|"handoff", reason: string|null, reply: string|null,
  *            notifyGroup: boolean, signals: string[]}}
  *   continue → let the agent answer
  *   handoff  → send `reply`, silence the bot for the chat, alert the group
- *   hold     → a handoff is already pending: say nothing; alert the group only if notifyGroup
  */
 function decideFriction({ text, history = [], now = new Date(), businessOpen = true }) {
   const f = detectFriction(text);
@@ -195,52 +232,21 @@ function decideFriction({ text, history = [], now = new Date(), businessOpen = t
     (h) => h && typeof h === "object" && typeof h.role === "string" && typeof h.text === "string"
   );
 
-  // 1. A human was already promised and hasn't shown up: don't repeat the promise.
-  let pending = -1;
-  for (let i = hist.length - 1; i >= 0; i--) {
-    if (hist[i].role === "agent") break;
-    if (hist[i].role === "bot" && HANDOFF_LINE.test(hist[i].text) && ageMin(hist[i], now) <= FRICTION_CONFIG.holdHours * 60) {
-      pending = i;
-      break;
-    }
-  }
-  if (pending >= 0) {
-    return {
-      action: "hold", reason: "pending_handoff", reply: null,
-      notifyGroup: f.wantsHuman || f.complaint || f.hard || f.score > 0,
-      signals: f.signals,
-    };
-  }
-
   const handoff = (reason) => ({
     action: "handoff", reason, reply: handoffReply(reason, businessOpen !== false), notifyGroup: true, signals: f.signals,
   });
 
-  // 2. Hard triggers.
+  // 1. Hard triggers.
   if (f.wantsHuman) return handoff("wants_human");
   if (f.complaint) return handoff("complaint");
   if (f.hard || f.score >= 2) return handoff("frustrated");
 
-  // 3. Soft signals that pile up across the last few customer turns.
+  // 2. Soft signals that pile up across the last few customer turns.
   if (f.score >= 1) {
     const recentUser = hist
       .filter((h) => h.role === "user" && ageMin(h, now) <= FRICTION_CONFIG.recentMinutes)
       .slice(-FRICTION_CONFIG.recentUserTurns);
     if (recentUser.some((h) => detectFriction(h.text).score > 0)) return handoff("frustrated");
-  }
-
-  // 4. The bot is looping: its last two lines (with the customer in between) are the same.
-  const bots = [];
-  for (let i = hist.length - 1; i >= 0 && bots.length < 2; i--) {
-    if (hist[i].role === "agent") break;
-    if (hist[i].role === "bot") bots.push(i);
-  }
-  if (bots.length === 2) {
-    const [last, prev] = bots;
-    const customerBetween = hist.slice(prev + 1, last).some((h) => h.role === "user");
-    if (customerBetween && ageMin(hist[prev], now) <= FRICTION_CONFIG.loopMinutes && isRepeat(hist[last].text, hist[prev].text)) {
-      return handoff("bot_loop");
-    }
   }
 
   return { action: "continue", reason: null, reply: null, notifyGroup: false, signals: f.signals };
@@ -268,40 +274,53 @@ const REASON_LABEL = {
   wants_human: "ביקש/ה לדבר עם נציג",
   complaint: "תלונה / בעיה בהזמנה",
   frustrated: "מתעצבן/ת על הבוט",
-  bot_loop: "הבוט חזר על עצמו",
-  pending_handoff: "עדיין מחכה לנציג ומתחיל/ה להתעצבן",
+  still_waiting: "לקוח/ה עדיין מחכה לנציג וכתב/ה שוב",
 };
 
-/** The orders-group card. Replying "בוט" to it hands the chat back (takeover.mjs parseGroupCommand). */
-function groupAlert({ reason, name, phone, lastText }) {
+/**
+ * The orders-group card. `silenced` = the bot was muted in that chat (a handoff);
+ * then replying "בוט" to the card hands the chat back (takeover.mjs parseGroupCommand).
+ */
+function groupAlert({ reason, name, phone, lastText, silenced = true }) {
   const digits = String(phone || "").replace(/\D/g, "");
   const said = cleanCustomerText(lastText).slice(0, 200);
   return [
-    `⚠️ ${REASON_LABEL[reason] || "דרוש נציג"} — הבוט הושתק בשיחה הזו`,
+    `⚠️ ${REASON_LABEL[reason] || "דרוש נציג"}` + (silenced ? " — הבוט הושתק בשיחה הזו" : ""),
     "",
     `שם: ${name || "לקוח"}`,
     `טלפון: +${digits}`,
     said ? `כתב/ה: "${said}"` : null,
     `פתיחת צ'אט: https://wa.me/${digits}`,
-    "",
-    `להחזיר את הבוט ללקוח הזה: השיבו להודעה הזו "בוט"`,
+    silenced ? "" : null,
+    silenced ? `להחזיר את הבוט ללקוח הזה: השיבו להודעה הזו "בוט"` : null,
   ].filter((x) => x !== null).join("\n");
 }
 
 
 // ---- node ----
+// Input: "Parse Order". A blocked reply is not sent: the turn goes to "Mem: Save Silenced Inbound"
+// (needs chatId / rawText / turnKey) and, at most every 30 min per chat, a card to the orders group.
 const p = $input.first().json;
-const gate = $('Friction Gate').first().json;
-const g = repeatGuard({ reply: p.summary, isOrder: p.isOrder, lastBotText: gate.lastBotText, businessOpen: gate.businessOpen !== false });
-if (!g.blocked) return [{ json: { ...p, repeatBlocked: false } }];
-const phone = String(p.chatId || '').split('@')[0];
+// Fail open: if anything here throws, the reply is sent exactly as before this node existed.
+try {
+const turn = $('Bot Allowed?').first().json;
+const history = historyBefore($('Mem: Load History').all().map((i) => i.json), turn.mergedText);
+const g = repeatGuard({ reply: p.summary, isOrder: p.isOrder, history, now: new Date() });
+if (!g.blocked) return [{ json: { ...p, repeatBlocked: false }, pairedItem: { item: 0 } }];
+const phone = String(turn.chatId || '').split('@')[0];
+const sd = $getWorkflowStaticData('global');
+sd.repeatAlerts = sd.repeatAlerts || {};
+for (const k in sd.repeatAlerts) if (Date.now() - sd.repeatAlerts[k] > 24 * 3600000) delete sd.repeatAlerts[k];
+const notify = Date.now() - (sd.repeatAlerts[phone] || 0) >= 30 * 60000;
+if (notify) sd.repeatAlerts[phone] = Date.now();
 return [{ json: {
   ...p,
   repeatBlocked: true,
-  frictionAction: 'handoff',
-  frictionReason: 'bot_loop',
-  frictionReply: g.reply,
-  frictionNotify: true,
-  frictionAlert: groupAlert({ reason: 'bot_loop', name: p.senderName, phone, lastText: gate.mergedText }),
-  silencedUntil: new Date(Date.now() + FRICTION_CONFIG.holdHours * 3600000).toISOString(),
-} }];
+  chatId: turn.chatId,
+  rawText: String(turn.rawText != null ? turn.rawText : (turn.mergedText || '')).replace(/\[המערכת:[^\]]*\]/g, '').trim(),
+  turnKey: turn.turnKey || null,
+  frictionAlert: notify ? groupAlert({ reason: 'still_waiting', name: turn.senderName, phone, lastText: turn.mergedText, silenced: false }) : '',
+}, pairedItem: { item: 0 } }];
+} catch (e) {
+  return [{ json: { ...p, repeatBlocked: false, repeatError: String(e && e.message || e) }, pairedItem: { item: 0 } }];
+}
