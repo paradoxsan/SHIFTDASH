@@ -225,3 +225,12 @@ describe("parseGroupCommand — managing a chat from the orders group", () => {
     expect(parseGroupCommand("בוט", "")).toBeNull(); // a command with no target does nothing
   });
 });
+
+describe("classifyOwnerMessage — feminine plural 'מוכנות' (24/11: 'החולצות מוכנות' did not close)", () => {
+  it.each(["החולצות מוכנות", "מחר יהיו מוכנות"])("%s → close", (body) => {
+    expect(kind(text(body))).toBe("close");
+  });
+  it("'עוד לא מוכנות' stays handling", () => {
+    expect(kind(text("עוד לא מוכנות"))).toBe("handling");
+  });
+});

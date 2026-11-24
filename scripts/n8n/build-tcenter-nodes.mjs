@@ -92,16 +92,24 @@ return [{ json: {
   },
 
   "repeat-guard.js": {
-    title: "Repeat Guard (between Parse Order and Send Summary / Reply)",
+    title: "Repeat Guard (between Parse Order → Pre-send: Human Mode and Send Summary / Reply)",
     modules: ["lib/bot/friction.mjs"],
     glue: `
 // ---- node ----
-// Input: "Parse Order". A blocked reply is not sent: the turn goes to "Mem: Save Silenced Inbound"
-// (needs chatId / rawText / turnKey) and, at most every 30 min per chat, a card to the orders group.
-const p = $input.first().json;
+// Input: "Pre-send: Human Mode" (this chat's human_mode row read just before sending, Always Output Data ON);
+// the reply itself comes from "Parse Order". A blocked reply is not sent: the turn goes to
+// "Mem: Save Silenced Inbound" (needs chatId / rawText / turnKey), and for a repeated handoff
+// promise a card goes to the orders group at most every 30 min per chat.
+const p = $('Parse Order').first().json;
 // Fail open: if anything here throws, the reply is sent exactly as before this node existed.
 try {
 const turn = $('Bot Allowed?').first().json;
+const memUser = String(turn.rawText != null ? turn.rawText : (turn.mergedText || '')).replace(/\\[המערכת:[^\\]]*\\]/g, '').trim();
+// The chat was not silenced when this turn started (else it would not be here). Silenced now means
+// Asi (or a group "שקט") stepped in while the agent was composing: his message stands, ours is dropped.
+if (silencedNow($input.all().map((i) => i.json), new Date())) {
+  return [{ json: { ...p, repeatBlocked: true, blockReason: 'human_took_over', chatId: turn.chatId, rawText: memUser, turnKey: turn.turnKey || null, frictionAlert: '' }, pairedItem: { item: 0 } }];
+}
 const history = historyBefore($('Mem: Load History').all().map((i) => i.json), ''); // this turn is already excluded
 const g = repeatGuard({ reply: p.summary, isOrder: p.isOrder, history, now: new Date() });
 if (!g.blocked) return [{ json: { ...p, repeatBlocked: false }, pairedItem: { item: 0 } }];
@@ -114,8 +122,9 @@ if (notify) sd.repeatAlerts[phone] = Date.now();
 return [{ json: {
   ...p,
   repeatBlocked: true,
+  blockReason: 'repeat_promise',
   chatId: turn.chatId,
-  rawText: String(turn.rawText != null ? turn.rawText : (turn.mergedText || '')).replace(/\\[המערכת:[^\\]]*\\]/g, '').trim(),
+  rawText: memUser,
   turnKey: turn.turnKey || null,
   frictionAlert: notify ? groupAlert({ reason: 'still_waiting', name: turn.senderName, phone, lastText: turn.mergedText, silenced: false }) : '',
 }, pairedItem: { item: 0 } }];

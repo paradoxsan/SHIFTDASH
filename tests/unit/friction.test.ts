@@ -10,6 +10,7 @@ import {
   historyBefore,
   repeatGuard,
   lastBotLine,
+  silencedNow,
 } from "../../lib/bot/friction.mjs";
 
 const NOW = new Date("2026-11-24T10:00:00Z");
@@ -272,5 +273,23 @@ describe("handoffReply / groupAlert", () => {
     const g = groupAlert({ reason: "still_waiting", name: "דנה", phone: "972501234567", lastText: "??", silenced: false });
     expect(g).toContain("עדיין מחכה לנציג");
     expect(g).not.toMatch(/הושתק|השיבו/);
+  });
+});
+
+describe("silencedNow — same rule as the live 'Bot Allowed?' node", () => {
+  const now = new Date("2026-11-24T10:00:00Z");
+  it("active with a future silenced_until is silenced; past or inactive is not", () => {
+    expect(silencedNow([{ active: true, silenced_until: "2026-11-24T11:00:00Z" }], now)).toBe(true);
+    expect(silencedNow([{ active: true, silenced_until: "2026-11-24T09:59:00Z" }], now)).toBe(false);
+    expect(silencedNow([{ active: false, silenced_until: "2026-11-24T11:00:00Z" }], now)).toBe(false);
+  });
+  it("a legacy row without silenced_until holds for 120 minutes after updated_at", () => {
+    expect(silencedNow([{ active: true, updated_at: "2026-11-24T08:30:00Z" }], now)).toBe(true);
+    expect(silencedNow([{ active: true, updated_at: "2026-11-24T07:30:00Z" }], now)).toBe(false);
+  });
+  it("no row / the empty Always-Output-Data item / junk → not silenced", () => {
+    expect(silencedNow([{}], now)).toBe(false);
+    expect(silencedNow(undefined as never, now)).toBe(false);
+    expect(silencedNow([null, 5] as never, now)).toBe(false);
   });
 });

@@ -120,31 +120,42 @@ describe("generated n8n Code nodes", () => {
 
   describe("repeat-guard.js", () => {
     const canned = "קיבלנו את הפנייה 🙏 נציג יחזור אליך ברגעים הקרובים.";
+    // Input = "Pre-send: Human Mode" (no row = one empty item); the reply comes from "Parse Order".
+    const guard = (text: string, history: Json[], reply: string, humanMode: Json[] = [{}], staticData: Json = {}) =>
+      runNode("repeat-guard.js", { nodes: { ...turn(text, history), "Parse Order": { chatId: CHAT, summary: reply, isOrder: false } }, input: humanMode, staticData });
 
     it("the canned handoff line again, with no human in between → not sent; turn saved; group told once per 30 min", () => {
-      const nodes = turn("?", [{ role: "bot", text: canned, created_at: minAgo(5) }]);
+      const history = [{ role: "bot", text: canned, created_at: minAgo(5) }];
       const staticData = {};
-      const first = runNode("repeat-guard.js", { nodes, input: [{ chatId: CHAT, summary: canned, isOrder: false }], staticData });
-      const second = runNode("repeat-guard.js", { nodes, input: [{ chatId: CHAT, summary: canned, isOrder: false }], staticData });
-      expect(first[0].json).toMatchObject({ repeatBlocked: true, chatId: CHAT, rawText: "?", turnKey: "tcbuf-7" });
+      const first = guard("?", history, canned, [{}], staticData);
+      const second = guard("?", history, canned, [{}], staticData);
+      expect(first[0].json).toMatchObject({ repeatBlocked: true, blockReason: "repeat_promise", chatId: CHAT, rawText: "?", turnKey: "tcbuf-7" });
       expect(String(first[0].json.frictionAlert)).toContain("עדיין מחכה לנציג");
       expect(String(first[0].json.frictionAlert)).not.toContain("הושתק");
       expect(second[0].json).toMatchObject({ repeatBlocked: true, frictionAlert: "" });
     });
 
     it("a human answered after the promise → the line may go out again", () => {
-      const nodes = turn("?", [
-        { role: "bot", text: canned, created_at: minAgo(30) },
-        { role: "agent", text: "היי, אני בודק", created_at: minAgo(20) },
-      ]);
-      const out = runNode("repeat-guard.js", { nodes, input: [{ chatId: CHAT, summary: canned, isOrder: false }] });
-      expect(out[0].json.repeatBlocked).toBe(false);
+      const history = [{ role: "bot", text: canned, created_at: minAgo(30) }, { role: "agent", text: "היי, אני בודק", created_at: minAgo(20) }];
+      expect(guard("?", history, canned)[0].json.repeatBlocked).toBe(false);
     });
 
     it("a re-asked sales question passes through untouched", () => {
-      const nodes = turn("32", [{ role: "bot", text: "כמה יחידות תרצה?", created_at: minAgo(1) }]);
-      const out = runNode("repeat-guard.js", { nodes, input: [{ chatId: CHAT, summary: "כמה יחידות תרצה? 🙂", isOrder: false }] });
+      const out = guard("32", [{ role: "bot", text: "כמה יחידות תרצה?", created_at: minAgo(1) }], "כמה יחידות תרצה? 🙂");
       expect(out[0].json).toMatchObject({ repeatBlocked: false, summary: "כמה יחידות תרצה? 🙂" });
+      expect(out[0]).toMatchObject({ pairedItem: { item: 0 } });
+    });
+
+    it("Asi wrote while the agent was composing (chat silenced now) → the bot's reply is dropped, no group card", () => {
+      const until = new Date(Date.now() + 120 * 60000).toISOString();
+      const out = guard("כמה זה עולה?", [], "45 ₪ ליחידה", [{ chat_id: CHAT, active: true, silenced_until: until, updated_at: new Date().toISOString() }]);
+      expect(out[0].json).toMatchObject({ repeatBlocked: true, blockReason: "human_took_over", rawText: "כמה זה עולה?", frictionAlert: "" });
+    });
+
+    it("an expired or released row does not block", () => {
+      const past = new Date(Date.now() - 60000).toISOString();
+      expect(guard("x", [], "45 ₪ ליחידה", [{ chat_id: CHAT, active: true, silenced_until: past }])[0].json.repeatBlocked).toBe(false);
+      expect(guard("x", [], "45 ₪ ליחידה", [{ chat_id: CHAT, active: false, silenced_until: new Date(Date.now() + 3600e3).toISOString() }])[0].json.repeatBlocked).toBe(false);
     });
   });
 

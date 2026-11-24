@@ -184,6 +184,20 @@ function ageMin(h, now) {
   return Number.isNaN(t) ? Infinity : (now.getTime() - t) / 60000;
 }
 
+/**
+ * Is the chat silenced right now, by the same rule as the live "Bot Allowed?" node?
+ * `rows` = human_mode rows for the chat ({active, silenced_until, updated_at}); junk is ignored.
+ * A row without silenced_until (legacy) silences for `legacyMinutes` after updated_at.
+ */
+function silencedNow(rows, now = new Date(), legacyMinutes = 120) {
+  const t = now.getTime();
+  return (Array.isArray(rows) ? rows : []).some((r) => {
+    if (!r || typeof r !== "object" || r.active !== true) return false;
+    if (r.silenced_until) return t < new Date(r.silenced_until).getTime();
+    return !!r.updated_at && t - new Date(r.updated_at).getTime() < legacyMinutes * 60000;
+  });
+}
+
 /** The bot's last line in `history` (oldest first), or null if a human spoke after it. */
 function lastBotLine(history) {
   const hist = Array.isArray(history) ? history : [];
